@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Clear Sky Viewer</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;color:#ccc;font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden;height:100vh}
+#app{display:flex;height:100vh}
+#sidebar{width:300px;background:rgba(8,8,20,0.95);padding:20px;overflow-y:auto;border-right:1px solid #222;flex-shrink:0;z-index:10}
+#sidebar h1{font-size:1.3em;color:#7eb8ff;margin-bottom:4px}
+#sidebar .subtitle{font-size:0.8em;color:#667;margin-bottom:18px}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:0.8em;color:#889;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.05em}
+.field input{width:100%;padding:8px 10px;background:#0d0d20;border:1px solid #333;color:#ddd;border-radius:6px;font-size:0.95em}
+.field input:focus{outline:none;border-color:#4488cc}
+button{padding:8px 14px;background:#1a2a4c;color:#aac;border:1px solid #2a3a5c;border-radius:6px;cursor:pointer;font-size:0.85em;transition:background 0.2s}
+button:hover{background:#2a3a6c}
+.btn-primary{background:#1a44aa;color:#fff;border-color:#2255bb}
+.btn-primary:hover{background:#2a55cc}
+.btn-row{display:flex;gap:6px;margin-bottom:14px}
+.section{border-top:1px solid #1a1a2a;padding-top:14px;margin-top:14px}
+.section h3{font-size:0.85em;color:#558;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.05em}
+.toggle{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:0.9em;cursor:pointer}
+.toggle input{accent-color:#4488cc}
+#moonInfo{background:#0a0a1e;border-radius:8px;padding:12px;margin-top:10px;font-size:0.85em;line-height:1.6}
+#moonInfo .phase-icon{font-size:1.5em;margin-right:6px}
+#canvasWrap{flex:1;position:relative;overflow:hidden;background:#000}
+#canvasWrap canvas{position:absolute;top:0;left:0;width:100%;height:100%}
+#glCanvas{z-index:1}
+#overlayCanvas{z-index:2}
+#tooltip{position:absolute;z-index:10;pointer-events:none;background:rgba(5,5,20,0.92);color:#dde;padding:6px 10px;border-radius:6px;font-size:0.8em;display:none;border:1px solid #335;white-space:nowrap}
+#viewInfo{position:absolute;z-index:10;top:12px;right:16px;font-size:0.75em;color:#556;text-align:right;pointer-events:none;line-height:1.5}
+#loadingMsg{position:absolute;z-index:20;top:50%;left:50%;transform:translate(-50%,-50%);color:#558;font-size:1.1em}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <h1>Clear Sky Viewer</h1>
+    <div class="subtitle">The sky without light pollution</div>
+
+    <div class="field">
+      <label>Latitude</label>
+      <input type="number" id="lat" value="42.28" step="0.01" min="-90" max="90">
+    </div>
+    <div class="field">
+      <label>Longitude</label>
+      <input type="number" id="lon" value="-83.74" step="0.01" min="-180" max="180">
+    </div>
+    <div class="btn-row">
+      <button onclick="useMyLocation()" class="btn-primary">Use My Location</button>
+    </div>
+
+    <div class="field">
+      <label>Date</label>
+      <input type="date" id="dateInput">
+    </div>
+    <div class="field">
+      <label>Time (local)</label>
+      <input type="time" id="timeInput" step="60">
+    </div>
+    <div class="btn-row">
+      <button onclick="useNow()">Now</button>
+      <button onclick="updateSky()" class="btn-primary">Update Sky</button>
+    </div>
+
+    <div class="section">
+      <h3>View</h3>
+      <div class="field">
+        <label>Gamma / Brightness</label>
+        <input type="range" id="gammaSlider" min="0.3" max="1.5" step="0.05" value="0.55" oninput="renderAll()">
+      </div>
+      <label class="toggle"><input type="checkbox" id="showConst" checked onchange="renderOverlay()"> Constellation lines</label>
+      <label class="toggle"><input type="checkbox" id="showLabels" checked onchange="renderOverlay()"> Star labels</label>
+      <label class="toggle"><input type="checkbox" id="showGrid" onchange="renderOverlay()"> Alt/Az grid</label>
+    </div>
+
+    <div class="section">
+      <h3>Moon</h3>
+      <div id="moonInfo">Loading...</div>
+    </div>
+
+    <div class="section" style="font-size:0.75em;color:#445;line-height:1.5">
+      <b>Controls:</b> Drag to pan. Scroll to zoom. Hover stars for info.
+    </div>
+  </div>
+
+  <div id="canvasWrap">
+    <canvas id="glCanvas"></canvas>
+    <canvas id="overlayCanvas"></canvas>
+    <div id="tooltip"></div>
+    <div id="viewInfo"></div>
+    <div id="loadingMsg">Loading sky map...</div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- VERTEX SHADER - full screen quad                             -->
+<!-- ============================================================ -->
+<script id="vs" type="x-shader/x-vertex">
+attribute vec2 aPos;
+varying vec2 vUV;
+void main() {
+  vUV = aPos * 0.5 + 0.5;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}
+</script>
+
+<!-- ============================================================ -->
+<!-- FRAGMENT SHADER - milkyway texture via galactic coords       -->
+<!-- ============================================================ -->
+<script id="fs" type="x-shader/x-fragment">
+precision highp float;
+
+varying vec2 vUV;
+uniform sampler2D uSkyTex;
+uniform mat3 uViewToGal;    // combined: camera -> ENU -> equatorial -> galactic
+uniform float uFovTan;      // tan(fov/2)
+uniform float uAspect;      // width/height
+uniform float uGamma;       // tone mapping gamma
+uniform mat3 uCamToENU;     // camera-space -> ENU rotation
+
+const float PI = 3.14159265359;
+
+void main() {
+  float px = (vUV.x - 0.5) * 2.0 * uFovTan * uAspect;
+  float py = (vUV.y - 0.5) * 2.0 * uFovTan;
+
+  // Camera-space direction -> galactic
+  vec3 camDir = normalize(vec3(px, py, 1.0));
+  vec3 galDir = normalize(uViewToGal * camDir);
+
+  // Galactic (l, b) -> texture UV
+  float l = atan(galDir.y, galDir.x);
+  if (l < 0.0) l += 2.0 * PI;
+  float b = asin(clamp(galDir.z, -1.0, 1.0));
+  vec2 texUV = vec2(l / (2.0 * PI), 0.5 - b / PI);
+  vec3 skyColor = texture2D(uSkyTex, texUV).rgb;
+
+  // Compute true altitude via camera -> ENU transform
+  vec3 enuDir = normalize(uCamToENU * camDir);
+  float sinAlt = enuDir.z; // z-component in ENU = sin(altitude)
+  float altDeg = asin(clamp(sinAlt, -1.0, 1.0)) * (180.0 / PI);
+
+  // Atmospheric extinction: dimming + reddening near horizon
+  float airmass = 1.0 / max(0.02, sinAlt);
+  float ext = exp(-0.18 * max(0.0, airmass - 1.0));
+  skyColor *= ext;
+
+  // Warm tint near horizon (Rayleigh scattering effect)
+  float tint = (1.0 - ext) * 0.4;
+  skyColor += vec3(0.025, 0.015, 0.005) * tint;
+
+  // Below horizon: fade to black
+  float horizonMask = smoothstep(-3.0, 0.5, altDeg);
+  skyColor *= horizonMask;
+
+  // Gamma tone mapping
+  skyColor = pow(clamp(skyColor, 0.0, 1.0), vec3(uGamma));
+
+  gl_FragColor = vec4(skyColor, 1.0);
+}
+</script>
+
+<script>
+// ============================================================
+// STAR CATALOG - [RA(deg), Dec(deg), Vmag, B-V, "Name"]
+// ============================================================
+const CATALOG = [
+[165.932,61.751,1.79,1.07,"Dubhe"],[165.460,56.382,2.37,0.03,"Merak"],
+[178.457,53.695,2.44,0.04,"Phecda"],[183.856,57.033,3.31,0.02,"Megrez"],
+[193.507,55.960,1.77,-0.02,"Alioth"],[200.981,54.926,2.27,0.02,"Mizar"],
+[206.885,49.313,1.86,-0.19,"Alkaid"],
+[37.954,89.264,2.02,0.60,"Polaris"],[222.676,74.155,2.08,1.47,"Kochab"],
+[236.015,77.795,3.05,0.06,"Pherkad"],
+[88.793,7.407,0.42,1.85,"Betelgeuse"],[78.634,-8.202,0.12,-0.03,"Rigel"],
+[81.283,6.350,1.64,-0.22,"Bellatrix"],[83.002,-0.299,2.23,-0.18,"Mintaka"],
+[84.053,-1.202,1.69,-0.19,"Alnilam"],[85.190,-1.943,1.77,-0.21,"Alnitak"],
+[86.939,-9.670,2.09,-0.18,"Saiph"],
+[101.287,-16.716,-1.46,0.01,"Sirius"],[104.656,-28.972,1.50,-0.21,"Adhara"],
+[105.940,-26.393,1.84,0.67,"Wezen"],[95.675,-17.956,1.98,-0.24,"Mirzam"],
+[111.024,-29.303,2.45,-0.08,"Aludra"],
+[114.825,5.225,0.38,0.42,"Procyon"],[111.788,8.289,2.90,-0.09,"Gomeisa"],
+[68.980,16.509,0.85,1.54,"Aldebaran"],[81.573,28.607,1.65,-0.13,"Elnath"],
+[56.871,24.105,2.87,-0.09,"Alcyone"],[67.154,15.870,3.53,1.01,"Ain"],
+[116.329,28.026,1.14,1.00,"Pollux"],[113.650,31.888,1.58,0.03,"Castor"],
+[99.428,16.399,1.93,0.00,"Alhena"],[100.983,25.131,3.06,0.94,"Mebsuta"],
+[95.740,22.507,2.88,1.64,"Tejat"],
+[152.093,11.967,1.35,-0.11,"Regulus"],[177.265,14.572,2.13,0.09,"Denebola"],
+[154.993,19.842,2.08,1.14,"Algieba"],[168.527,20.524,2.56,0.13,"Zosma"],
+[201.298,-11.161,0.97,-0.23,"Spica"],[195.544,10.959,2.83,0.93,"Vindemiatrix"],
+[213.915,19.182,-0.05,1.23,"Arcturus"],[221.247,27.074,2.37,0.97,"Izar"],
+[208.671,18.398,2.68,0.58,"Muphrid"],
+[233.672,26.715,2.23,0.02,"Alphecca"],
+[279.234,38.783,0.03,0.00,"Vega"],[282.520,33.363,3.45,-0.06,"Sheliak"],
+[284.736,32.690,3.24,-0.05,"Sulafat"],
+[310.357,45.280,1.25,0.09,"Deneb"],[305.557,40.257,2.20,0.68,"Sadr"],
+[305.253,33.970,2.46,0.94,"Gienah Cyg"],[292.680,27.960,3.08,0.86,"Albireo"],
+[297.696,8.868,0.77,0.22,"Altair"],[296.565,10.614,2.72,1.52,"Tarazed"],
+[298.828,6.407,3.71,0.32,"Alshain"],
+[10.127,56.537,2.23,1.17,"Schedar"],[2.295,59.150,2.27,0.34,"Caph"],
+[14.177,60.717,2.47,-0.15,"Gamma Cas"],[21.454,60.235,2.68,0.13,"Ruchbah"],
+[28.599,63.670,3.37,-0.15,"Segin"],
+[51.081,49.861,1.80,0.48,"Mirfak"],[47.042,40.956,2.12,-0.05,"Algol"],
+[2.097,29.091,2.06,-0.11,"Alpheratz"],[17.433,35.621,2.06,1.58,"Mirach"],
+[30.975,42.330,2.10,1.37,"Almach"],
+[346.190,15.205,2.49,-0.04,"Markab"],[345.944,28.083,2.42,1.67,"Scheat"],
+[3.309,15.184,2.83,-0.23,"Algenib"],[326.046,9.875,2.39,1.52,"Enif"],
+[247.352,-26.432,0.96,1.83,"Antares"],[263.402,-37.104,1.63,-0.22,"Shaula"],
+[264.330,-42.998,1.87,0.40,"Sargas"],[240.083,-22.622,2.32,-0.12,"Dschubba"],
+[252.541,-34.293,2.29,0.14,"Epsilon Sco"],
+[276.043,-34.384,1.85,-0.03,"Kaus Australis"],[283.816,-26.296,2.05,-0.13,"Nunki"],
+[285.653,-29.880,2.59,0.04,"Ascella"],[275.249,-29.828,2.70,1.36,"Kaus Media"],
+[273.441,-25.422,2.82,0.76,"Kaus Borealis"],
+[219.902,-60.834,-0.27,0.71,"Alpha Centauri"],[210.956,-60.373,0.61,-0.23,"Hadar"],
+[211.671,-36.370,2.06,1.01,"Menkent"],[190.379,-48.960,2.17,-0.01,"Muhlifain"],
+[186.650,-63.099,0.76,-0.24,"Acrux"],[191.930,-59.688,1.25,-0.23,"Mimosa"],
+[187.791,-57.113,1.63,1.59,"Gacrux"],[183.786,-58.749,2.80,-0.16,"Delta Cru"],
+[95.988,-52.696,-0.74,0.15,"Canopus"],[125.628,-59.509,1.86,1.28,"Avior"],
+[138.300,-69.717,1.68,0.07,"Miaplacidus"],[131.176,-54.709,1.96,-0.14,"Alsephina"],
+[122.383,-47.337,1.78,-0.22,"Regor"],[136.039,-43.433,2.21,1.66,"Alsuhail"],
+[140.528,-55.011,2.50,-0.18,"Markeb"],
+[120.896,-40.003,2.25,-0.27,"Naos"],[121.886,-24.304,2.70,0.59,"Tureis"],
+[24.429,-57.237,0.46,-0.16,"Achernar"],[76.963,-5.086,2.79,0.03,"Cursa"],
+[344.413,-29.622,1.16,0.09,"Fomalhaut"],
+[332.058,-46.961,1.74,-0.07,"Alnair"],[340.667,-46.885,2.14,1.62,"Tiaki"],
+[306.412,-56.735,1.94,-0.20,"Peacock"],
+[252.166,-69.028,1.92,1.44,"Atria"],
+[141.897,-8.659,1.98,1.44,"Alphard"],
+[183.952,-17.542,2.59,-0.11,"Gienah Crv"],[188.597,-23.397,2.65,0.89,"Kraz"],
+[187.466,-16.516,2.94,-0.12,"Algorab"],[182.103,-22.620,3.00,-0.05,"Minkar"],
+[263.734,12.560,2.08,0.15,"Rasalhague"],[257.595,-15.725,2.43,0.06,"Sabik"],
+[265.868,4.567,2.77,0.95,"Cebalrai"],
+[236.067,6.426,2.65,1.17,"Unukalhai"],
+[229.252,-9.383,2.61,-0.11,"Zubeneschamali"],[222.720,-16.042,2.75,0.15,"Zubenelgenubi"],
+[326.760,-16.127,2.87,0.08,"Deneb Algedi"],
+[322.890,-5.571,2.91,1.04,"Sadalsuud"],[331.446,-0.320,2.96,1.04,"Sadalmelik"],
+[31.793,23.462,2.00,1.15,"Hamal"],[28.660,20.808,2.64,0.17,"Sheratan"],
+[319.645,62.586,2.51,0.22,"Alderamin"],
+[269.152,51.489,2.23,1.52,"Eltanin"],[262.608,52.301,2.79,0.96,"Rastaban"],
+[79.172,45.998,0.08,0.80,"Capella"],[89.882,44.947,1.90,0.08,"Menkalinan"],
+[75.492,33.166,2.69,0.79,"Hassaleh"],
+[84.912,-34.074,2.64,-0.12,"Phact"],
+[83.183,-17.822,2.58,0.21,"Arneb"],[82.061,-20.759,2.84,0.82,"Nihal"],
+[10.897,-17.987,2.04,1.02,"Diphda"],
+];
+
+const CONST_LINES = {
+"Ursa Major":[["Dubhe","Merak"],["Merak","Phecda"],["Phecda","Megrez"],["Megrez","Alioth"],["Alioth","Mizar"],["Mizar","Alkaid"],["Megrez","Dubhe"]],
+"Orion":[["Betelgeuse","Bellatrix"],["Betelgeuse","Mintaka"],["Bellatrix","Mintaka"],["Mintaka","Alnilam"],["Alnilam","Alnitak"],["Alnitak","Saiph"],["Mintaka","Rigel"],["Rigel","Saiph"]],
+"Cassiopeia":[["Schedar","Caph"],["Schedar","Gamma Cas"],["Gamma Cas","Ruchbah"],["Ruchbah","Segin"]],
+"Cygnus":[["Deneb","Sadr"],["Sadr","Albireo"],["Sadr","Gienah Cyg"]],
+"Leo":[["Regulus","Algieba"],["Algieba","Zosma"],["Zosma","Denebola"],["Regulus","Denebola"]],
+"Scorpius":[["Antares","Dschubba"],["Antares","Epsilon Sco"],["Epsilon Sco","Shaula"],["Shaula","Sargas"]],
+"Lyra":[["Vega","Sheliak"],["Sheliak","Sulafat"],["Sulafat","Vega"]],
+"Gemini":[["Pollux","Castor"],["Pollux","Alhena"],["Castor","Mebsuta"],["Mebsuta","Tejat"]],
+"Crux":[["Acrux","Gacrux"],["Mimosa","Delta Cru"]],
+"Andromeda":[["Alpheratz","Mirach"],["Mirach","Almach"]],
+"Pegasus":[["Markab","Scheat"],["Scheat","Alpheratz"],["Alpheratz","Algenib"],["Algenib","Markab"]],
+"Sagittarius":[["Kaus Australis","Kaus Media"],["Kaus Media","Kaus Borealis"],["Kaus Australis","Ascella"],["Ascella","Nunki"]],
+"Taurus":[["Aldebaran","Elnath"],["Aldebaran","Alcyone"]],
+"Corvus":[["Gienah Crv","Kraz"],["Kraz","Minkar"],["Minkar","Algorab"],["Algorab","Gienah Crv"]],
+"Bootes":[["Arcturus","Izar"],["Arcturus","Muphrid"]],
+"Canis Major":[["Sirius","Mirzam"],["Sirius","Adhara"],["Adhara","Wezen"],["Wezen","Aludra"]],
+"Ursa Minor":[["Polaris","Kochab"],["Kochab","Pherkad"]],
+};
+
+// ============================================================
+// MATH CONSTANTS & ASTRO ENGINE
+// ============================================================
+const DEG = Math.PI / 180, RAD = 180 / Math.PI, PI = Math.PI, TAU = 2 * Math.PI;
+
+function julianDate(y, m, d, ut) {
+  if (m <= 2) { y--; m += 12; }
+  const A = Math.floor(y/100), B = 2-A+Math.floor(A/4);
+  return Math.floor(365.25*(y+4716))+Math.floor(30.6001*(m+1))+d+ut/24+B-1524.5;
+}
+function gmst(jd) {
+  const T=(jd-2451545)/36525;
+  return (280.46061837+360.98564736629*(jd-2451545)+0.000387933*T*T-T*T*T/38710000+360*1000)%360;
+}
+function raDecToAltAz(ra,dec,lat,lon,jd) {
+  const lst=(gmst(jd)+lon+360)%360, ha=(lst-ra+360)%360;
+  const h=ha*DEG, d=dec*DEG, p=lat*DEG;
+  const sinA=Math.sin(d)*Math.sin(p)+Math.cos(d)*Math.cos(p)*Math.cos(h);
+  const alt=Math.asin(sinA), cosA=Math.cos(alt);
+  if(cosA<1e-10) return {alt:alt*RAD,az:0};
+  const az=Math.atan2(-Math.cos(d)*Math.sin(h)/cosA,(Math.sin(d)*Math.cos(p)-Math.cos(d)*Math.sin(p)*Math.cos(h))/cosA);
+  return {alt:alt*RAD, az:((az*RAD)+360)%360};
+}
+function atmosphericExtinction(alt,mag) {
+  if(alt<=0) return 99;
+  return mag + 0.20/Math.sin(Math.max(alt,1)*DEG);
+}
+
+// Moon & Sun
+function moonPosition(jd) {
+  const T=(jd-2451545)/36525;
+  let Lp=218.3165+481267.8813*T, D=297.8502+445267.1115*T, M=357.5291+35999.0503*T, Mp=134.9634+477198.8676*T, F=93.2720+483202.0175*T;
+  [Lp,D,M,Mp,F]=[Lp,D,M,Mp,F].map(v=>((v%360)+360)%360);
+  const lon=Lp+6.289*Math.sin(Mp*DEG)+1.274*Math.sin((2*D-Mp)*DEG)+0.658*Math.sin(2*D*DEG)+0.214*Math.sin(2*Mp*DEG)-0.186*Math.sin(M*DEG)-0.114*Math.sin(2*F*DEG);
+  const lat=5.128*Math.sin(F*DEG)+0.281*Math.sin((Mp+F)*DEG)+0.278*Math.sin((Mp-F)*DEG)+0.173*Math.sin((2*D-F)*DEG);
+  const obl=(23.4393-0.013*T)*DEG, lonR=lon*DEG, latR=lat*DEG;
+  const ra=Math.atan2(Math.sin(lonR)*Math.cos(obl)-Math.tan(latR)*Math.sin(obl),Math.cos(lonR));
+  const dec=Math.asin(Math.sin(latR)*Math.cos(obl)+Math.cos(latR)*Math.sin(obl)*Math.sin(lonR));
+  return {ra:((ra*RAD)+360)%360, dec:dec*RAD, eclLon:lon};
+}
+function sunPosition(jd) {
+  const T=(jd-2451545)/36525, M2=(357.5291+35999.0503*T)*DEG;
+  const C=(1.9146*Math.sin(M2)+0.02*Math.sin(2*M2))*DEG;
+  const sunLon=(280.4665+36000.7698*T)*DEG+C;
+  const obl=(23.4393-0.013*T)*DEG;
+  const ra=Math.atan2(Math.cos(obl)*Math.sin(sunLon),Math.cos(sunLon));
+  const dec=Math.asin(Math.sin(obl)*Math.sin(sunLon));
+  return {ra:((ra*RAD)+360)%360, dec:dec*RAD, eclLon:(sunLon*RAD+360)%360};
+}
+function moonPhaseInfo(jd) {
+  const moon=moonPosition(jd), sun=sunPosition(jd);
+  let elong=((moon.eclLon-sun.eclLon)%360+360)%360;
+  const illum=(1+Math.cos((180-elong)*DEG))/2;
+  const names=["New Moon","Waxing Crescent","First Quarter","Waxing Gibbous","Full Moon","Waning Gibbous","Last Quarter","Waning Crescent","New Moon"];
+  const thresholds=[22.5,67.5,112.5,157.5,202.5,247.5,292.5,337.5,361];
+  let idx=thresholds.findIndex(t=>elong<t);
+  return {illumination:illum, phaseName:names[idx], elongation:elong, moonRA:moon.ra, moonDec:moon.dec};
+}
+
+// ============================================================
+// ROTATION MATRICES for view -> galactic coordinate transform
+// ============================================================
+
+// Equatorial J2000 -> Galactic rotation matrix (standard IAU)
+const R_EQ2GAL = [
+  -0.0548755604, -0.8734370902, -0.4838350155,
+   0.4941094279, -0.4448296300,  0.7469822445,
+  -0.8676661490, -0.1980763734,  0.4559837762
+];
+
+function mat3Multiply(A, B) {
+  // A, B are flat [9] arrays in row-major
+  const r = new Float32Array(9);
+  for (let i = 0; i < 3; i++)
+    for (let j = 0; j < 3; j++)
+      r[i*3+j] = A[i*3]*B[j] + A[i*3+1]*B[3+j] + A[i*3+2]*B[6+j];
+  return r;
+}
+
+function buildViewToGalMatrix(centerAlt, centerAz, latDeg, lonDeg, jd) {
+  const lst = (gmst(jd) + lonDeg + 360) % 360;
+  const lstR = lst * DEG, latR = latDeg * DEG;
+  const sinLst = Math.sin(lstR), cosLst = Math.cos(lstR);
+  const sinLat = Math.sin(latR), cosLat = Math.cos(latR);
+
+  // R_enu2eq: ENU columns -> equatorial (x=cos(dec)cos(ra), y=cos(dec)sin(ra), z=sin(dec))
+  // col0 (East):  (-sinLst, cosLst, 0)
+  // col1 (North): (-sinLat*cosLst, -sinLat*sinLst, cosLat)
+  // col2 (Up):    (cosLat*cosLst, cosLat*sinLst, sinLat)
+  const R_enu2eq = [
+    -sinLst, -sinLat*cosLst, cosLat*cosLst,
+     cosLst, -sinLat*sinLst, cosLat*sinLst,
+     0,       cosLat,        sinLat
+  ];
+
+  // R_cam2enu: camera (right, up, forward) -> ENU
+  const a0 = centerAlt * DEG, az0 = centerAz * DEG;
+  const sinA = Math.sin(a0), cosA = Math.cos(a0);
+  const sinAz = Math.sin(az0), cosAz = Math.cos(az0);
+  // Forward (center dir in ENU): (cosA*sinAz, cosA*cosAz, sinA)
+  // Right: (cosAz, -sinAz, 0)
+  // Up: (-sinA*sinAz, -sinA*cosAz, cosA)
+  const R_cam2enu = [
+    cosAz,  -sinA*sinAz,  cosA*sinAz,
+   -sinAz,  -sinA*cosAz,  cosA*cosAz,
+    0,       cosA,         sinA
+  ];
+
+  // Combined: R_eq2gal * R_enu2eq * R_cam2enu
+  const R_enu2gal = mat3Multiply(R_EQ2GAL, R_enu2eq);
+  return mat3Multiply(R_enu2gal, R_cam2enu);
+}
+
+// Also build cam -> ENU matrix for altitude computation in overlay
+function buildCamToENUMatrix(centerAlt, centerAz) {
+  const a0 = centerAlt * DEG, az0 = centerAz * DEG;
+  const sinA = Math.sin(a0), cosA = Math.cos(a0);
+  const sinAz = Math.sin(az0), cosAz = Math.cos(az0);
+  return [
+    cosAz,  -sinA*sinAz,  cosA*sinAz,
+   -sinAz,  -sinA*cosAz,  cosA*cosAz,
+    0,       cosA,         sinA
+  ];
+}
+
+// ============================================================
+// WEBGL SETUP
+// ============================================================
+const glCanvas = document.getElementById('glCanvas');
+const gl = glCanvas.getContext('webgl', { antialias: true, alpha: false });
+
+function compileShader(src, type) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    console.error('Shader compile error:', gl.getShaderInfoLog(s));
+    return null;
+  }
+  return s;
+}
+
+const vs = compileShader(document.getElementById('vs').textContent, gl.VERTEX_SHADER);
+const fs = compileShader(document.getElementById('fs').textContent, gl.FRAGMENT_SHADER);
+const program = gl.createProgram();
+gl.attachShader(program, vs);
+gl.attachShader(program, fs);
+gl.linkProgram(program);
+if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+  console.error('Program link error:', gl.getProgramInfoLog(program));
+}
+gl.useProgram(program);
+
+// Full-screen quad
+const quad = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+const aPos = gl.getAttribLocation(program, 'aPos');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+// Uniforms
+const uSkyTex = gl.getUniformLocation(program, 'uSkyTex');
+const uViewToGal = gl.getUniformLocation(program, 'uViewToGal');
+const uFovTan = gl.getUniformLocation(program, 'uFovTan');
+const uAspect = gl.getUniformLocation(program, 'uAspect');
+const uGamma = gl.getUniformLocation(program, 'uGamma');
+const uCamToENU = gl.getUniformLocation(program, 'uCamToENU');
+
+// Texture
+const skyTexture = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, skyTexture);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0,0,0,255]));
+let textureLoaded = false;
+const skyImage = new Image();
+
+console.log('about to load image');
+
+skyImage.onload = () => {
+  console.log('sky texture loaded OK');
+
+  try {
+    gl.bindTexture(gl.TEXTURE_2D, skyTexture);
+    console.log('bind ok');
+
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, skyImage);
+    console.log('texImage2D ok');
+
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    console.log('texParameteri ok');
+
+    textureLoaded = true;
+    document.getElementById('loadingMsg').style.display = 'none';
+    console.log('loading hidden');
+
+    updateSky();
+    console.log('updateSky done');
+  } catch (err) {
+    console.error('ONLOAD CRASHED:', err);
+    alert('ONLOAD CRASHED - check console');
+  }
+};
+
+skyImage.onerror = (e) => {
+  console.error('IMAGE FAILED:', e, skyImage.src);
+  alert('IMAGE FAILED');
+};
+
+skyImage.src = './milkyway.jpg?v=' + Date.now();
+console.log('src set to', skyImage.src);
+// ============================================================
+// OVERLAY CANVAS (stars, moon, constellations, labels)
+// ============================================================
+const overlay = document.getElementById('overlayCanvas');
+const ctx = overlay.getContext('2d');
+
+// ============================================================
+// STATE
+// ============================================================
+let computedStars = [];
+let computedMoon = null;
+let currentMoonPhase = null;
+let currentJD = 0;
+
+const view = { centerAlt: 45, centerAz: 180, fov: 90, cx: 0, cy: 0, radius: 0 };
+
+// ============================================================
+// GNOMONIC PROJECTION for overlay (same math as shader)
+// ============================================================
+function project(altDeg, azDeg) {
+  const a = altDeg*DEG, az = azDeg*DEG;
+  const ca0 = view.centerAlt*DEG, az0 = view.centerAz*DEG;
+  const cosA=Math.cos(a),sinA=Math.sin(a),cosAz=Math.cos(az),sinAz=Math.sin(az);
+  const cosC=Math.cos(ca0),sinC=Math.sin(ca0),cosAz0=Math.cos(az0),sinAz0=Math.sin(az0);
+
+  const x=cosA*sinAz, y=cosA*cosAz, z=sinA;
+  const cx0=cosC*sinAz0, cy0=cosC*cosAz0, cz0=sinC;
+  const rx=cosAz0, ry=-sinAz0;
+  const ux=-sinC*sinAz0, uy=-sinC*cosAz0, uz=cosC;
+
+  const d = x*cx0+y*cy0+z*cz0;
+  if (d <= 0.01) return null;
+
+  const scale = view.radius / Math.tan(view.fov/2*DEG);
+  const px = (x*rx+y*ry)/d * scale;
+  const py = -(x*ux+y*uy+z*uz)/d * scale;
+  if (Math.abs(px)>view.radius*1.15 || Math.abs(py)>view.radius*1.15) return null;
+  return { x: view.cx+px, y: view.cy+py };
+}
+
+// ============================================================
+// COMPUTE STAR/MOON POSITIONS
+// ============================================================
+function computePositions() {
+  const lat=+document.getElementById('lat').value, lon=+document.getElementById('lon').value;
+  const dateStr=document.getElementById('dateInput').value, timeStr=document.getElementById('timeInput').value;
+  if (!dateStr||!timeStr) return;
+  const dt=new Date(dateStr+'T'+timeStr);
+  const utH=dt.getUTCHours()+dt.getUTCMinutes()/60+dt.getUTCSeconds()/3600;
+  currentJD = julianDate(dt.getUTCFullYear(), dt.getUTCMonth()+1, dt.getUTCDate(), utH);
+
+  computedStars = [];
+  for (const s of CATALOG) {
+    const p = raDecToAltAz(s[0],s[1],lat,lon,currentJD);
+    if (p.alt < -2) continue;
+    const am = atmosphericExtinction(p.alt, s[2]);
+    if (am > 6.5) continue;
+    computedStars.push({alt:p.alt,az:p.az,mag:s[2],appMag:am,bv:s[3],name:s[4],ra:s[0],dec:s[1]});
+  }
+
+  const moon=moonPosition(currentJD);
+  const mp=raDecToAltAz(moon.ra,moon.dec,lat,lon,currentJD);
+  computedMoon={...mp,...moon};
+  currentMoonPhase=moonPhaseInfo(currentJD);
+  updateMoonPanel();
+}
+
+function updateMoonPanel() {
+  const el=document.getElementById('moonInfo');
+  if(!currentMoonPhase){el.textContent='N/A';return;}
+  const icons={"New Moon":"\u{1F311}","Waxing Crescent":"\u{1F312}","First Quarter":"\u{1F313}","Waxing Gibbous":"\u{1F314}","Full Moon":"\u{1F315}","Waning Gibbous":"\u{1F316}","Last Quarter":"\u{1F317}","Waning Crescent":"\u{1F318}"};
+  const ic=icons[currentMoonPhase.phaseName]||"";
+  const il=(currentMoonPhase.illumination*100).toFixed(1);
+  const pos=computedMoon.alt>0?`Alt ${computedMoon.alt.toFixed(1)}° Az ${computedMoon.az.toFixed(1)}°`:"Below horizon";
+  el.innerHTML=`<span class="phase-icon">${ic}</span><b>${currentMoonPhase.phaseName}</b><br>Illumination: ${il}%<br>${pos}`;
+}
+
+// ============================================================
+// RENDERING
+// ============================================================
+function resizeCanvases() {
+  const wrap=document.getElementById('canvasWrap');
+  const w=wrap.clientWidth, h=wrap.clientHeight;
+  const dpr=window.devicePixelRatio||1;
+  glCanvas.width=w*dpr; glCanvas.height=h*dpr;
+  overlay.width=w*dpr; overlay.height=h*dpr;
+  gl.viewport(0,0,glCanvas.width,glCanvas.height);
+  view.cx=w/2; view.cy=h/2;
+  view.radius=Math.min(w,h)/2*0.95;
+}
+
+function renderBackground() {
+  if (!textureLoaded) return;
+  const lat=+document.getElementById('lat').value, lon=+document.getElementById('lon').value;
+  const gamma=+document.getElementById('gammaSlider').value;
+  const wrap=document.getElementById('canvasWrap');
+  const w=wrap.clientWidth, h=wrap.clientHeight;
+
+  const M = buildViewToGalMatrix(view.centerAlt, view.centerAz, lat, lon, currentJD);
+
+  gl.useProgram(program);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, skyTexture);
+  gl.uniform1i(uSkyTex, 0);
+
+  // Pass matrix as column-major for WebGL
+  gl.uniformMatrix3fv(uViewToGal, false, [
+    M[0],M[3],M[6],
+    M[1],M[4],M[7],
+    M[2],M[5],M[8]
+  ]);
+
+  gl.uniform1f(uFovTan, Math.tan(view.fov/2*DEG));
+  gl.uniform1f(uAspect, w/h);
+  gl.uniform1f(uGamma, gamma);
+
+  // Camera-to-ENU matrix for altitude computation in shader
+  const C2E = buildCamToENUMatrix(view.centerAlt, view.centerAz);
+  gl.uniformMatrix3fv(uCamToENU, false, [
+    C2E[0],C2E[3],C2E[6],
+    C2E[1],C2E[4],C2E[7],
+    C2E[2],C2E[5],C2E[8]
+  ]);
+
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+function bvToRGB(bv) {
+  bv=Math.max(-0.4,Math.min(2.0,bv));
+  let r,g,b;
+  if(bv<0){r=0.7+bv*0.15;g=0.75+bv*0.1;b=1.0;}
+  else if(bv<0.4){r=0.85+bv*0.38;g=0.88+bv*0.2;b=1.0-bv*0.35;}
+  else if(bv<0.8){r=1.0;g=1.0-(bv-0.4)*0.5;b=0.86-(bv-0.4)*0.7;}
+  else if(bv<1.4){r=1.0;g=0.8-(bv-0.8)*0.4;b=0.58-(bv-0.8)*0.5;}
+  else{r=1.0;g=Math.max(0.3,0.56-(bv-1.4)*0.25);b=Math.max(0.1,0.28-(bv-1.4)*0.15);}
+  return [Math.min(1,r),Math.min(1,g),Math.min(1,b)];
+}
+
+function renderOverlay() {
+  const wrap=document.getElementById('canvasWrap');
+  const w=wrap.clientWidth, h=wrap.clientHeight;
+  const dpr=window.devicePixelRatio||1;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,w,h);
+
+  const showConst=document.getElementById('showConst').checked;
+  const showLabels=document.getElementById('showLabels').checked;
+  const showGrid=document.getElementById('showGrid').checked;
+
+  // Grid
+  if (showGrid) {
+    ctx.strokeStyle='rgba(60,70,100,0.2)'; ctx.lineWidth=0.5;
+    for (let alt=0;alt<=90;alt+=15) {
+      ctx.beginPath(); let f=true;
+      for(let az=0;az<=360;az+=2){const p=project(alt,az);if(!p){f=true;continue;}if(f){ctx.moveTo(p.x,p.y);f=false;}else ctx.lineTo(p.x,p.y);}
+      ctx.stroke();
+    }
+    for (let az=0;az<360;az+=30) {
+      ctx.beginPath(); let f=true;
+      for(let alt=0;alt<=90;alt+=2){const p=project(alt,az);if(!p){f=true;continue;}if(f){ctx.moveTo(p.x,p.y);f=false;}else ctx.lineTo(p.x,p.y);}
+      ctx.stroke();
+    }
+  }
+
+  // Constellation lines
+  if (showConst) {
+    ctx.strokeStyle='rgba(90,130,200,0.25)'; ctx.lineWidth=0.8;
+    for (const [name,lines] of Object.entries(CONST_LINES)) {
+      let sx=0,sy=0,sc=0;
+      for (const [n1,n2] of lines) {
+        const s1=computedStars.find(s=>s.name===n1), s2=computedStars.find(s=>s.name===n2);
+        if(!s1||!s2||s1.alt<0||s2.alt<0) continue;
+        const p1=project(s1.alt,s1.az), p2=project(s2.alt,s2.az);
+        if(!p1||!p2) continue;
+        ctx.beginPath();ctx.moveTo(p1.x,p1.y);ctx.lineTo(p2.x,p2.y);ctx.stroke();
+        sx+=p1.x+p2.x;sy+=p1.y+p2.y;sc+=2;
+      }
+      if(showLabels&&sc>0){ctx.fillStyle='rgba(100,140,200,0.3)';ctx.font='10px sans-serif';ctx.textAlign='center';ctx.fillText(name,sx/sc,sy/sc-8);}
+    }
+  }
+
+  // Horizon line
+  ctx.strokeStyle='rgba(60,80,50,0.35)'; ctx.lineWidth=1;
+  ctx.beginPath(); let hf=true;
+  for(let az=0;az<=361;az++){const p=project(0,az%360);if(!p){hf=true;continue;}if(hf){ctx.moveTo(p.x,p.y);hf=false;}else ctx.lineTo(p.x,p.y);}
+  ctx.stroke();
+
+  // Below-horizon handled by WebGL shader
+
+  // Stars
+  for (const star of computedStars) {
+    if (star.alt<0) continue;
+    const p=project(star.alt,star.az);
+    if(!p) continue;
+    const am=star.appMag;
+    const size=Math.max(0.4, 4-am*0.55);
+    const bright=Math.max(0.12, Math.min(1, Math.pow(10,-0.15*(am+0.5))));
+    const [r,g,b]=bvToRGB(star.bv);
+    // Glow
+    if(am<2.5){
+      const gs=size*5;
+      const grd=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,gs);
+      grd.addColorStop(0,`rgba(${r*255|0},${g*255|0},${b*255|0},${bright*0.35})`);
+      grd.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=grd; ctx.beginPath(); ctx.arc(p.x,p.y,gs,0,TAU); ctx.fill();
+    }
+    // Dot
+    ctx.fillStyle=`rgba(${r*bright*255|0},${g*bright*255|0},${b*bright*255|0},${Math.min(1,bright+0.25)})`;
+    ctx.beginPath(); ctx.arc(p.x,p.y,size,0,TAU); ctx.fill();
+    // Label
+    if(showLabels&&star.name&&am<2.2){
+      ctx.fillStyle=`rgba(190,210,240,${Math.min(0.75,bright)})`;
+      ctx.font='10px sans-serif'; ctx.textAlign='left';
+      ctx.fillText(star.name, p.x+size+3, p.y+3);
+    }
+  }
+
+  // Moon
+  if (computedMoon && computedMoon.alt>-1 && currentMoonPhase) {
+    const p=project(computedMoon.alt,computedMoon.az);
+    if(p) {
+      const mr=Math.max(8, 16-view.fov*0.07);
+      const il=currentMoonPhase.illumination;
+      const el=currentMoonPhase.elongation;
+      // Glow
+      const gr=mr*4;
+      const grd=ctx.createRadialGradient(p.x,p.y,mr*0.3,p.x,p.y,gr);
+      grd.addColorStop(0,`rgba(200,215,240,${il*0.25})`);
+      grd.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=grd;ctx.beginPath();ctx.arc(p.x,p.y,gr,0,TAU);ctx.fill();
+      // Dark disc
+      ctx.fillStyle='#1a1a28';ctx.beginPath();ctx.arc(p.x,p.y,mr,0,TAU);ctx.fill();
+      // Lit portion
+      if(il>0.01){
+        ctx.save();ctx.beginPath();ctx.arc(p.x,p.y,mr,0,TAU);ctx.clip();
+        ctx.fillStyle=`rgb(${200+il*55|0},${210+il*45|0},${220+il*35|0})`;
+        const tX=mr*Math.cos(el*DEG);
+        ctx.beginPath();
+        if(el<180){ctx.arc(p.x,p.y,mr,-PI/2,PI/2,false);ctx.ellipse(p.x,p.y,Math.abs(tX),mr,0,PI/2,-PI/2,tX>0);}
+        else{ctx.arc(p.x,p.y,mr,PI/2,-PI/2,false);ctx.ellipse(p.x,p.y,Math.abs(tX),mr,0,-PI/2,PI/2,tX>0);}
+        ctx.fill();ctx.restore();
+      }
+      ctx.fillStyle='rgba(200,215,240,0.5)';ctx.font='11px sans-serif';ctx.textAlign='center';
+      ctx.fillText('Moon',p.x,p.y+mr+14);
+    }
+  }
+
+  // Cardinals
+  const dirs=[[0,'N'],[45,'NE'],[90,'E'],[135,'SE'],[180,'S'],[225,'SW'],[270,'W'],[315,'NW']];
+  for(const [az,label] of dirs){
+    const p=project(0,az);if(!p)continue;
+    const main=label.length===1;
+    ctx.fillStyle=main?'rgba(200,180,100,0.65)':'rgba(150,140,80,0.35)';
+    ctx.font=main?'bold 13px sans-serif':'10px sans-serif';ctx.textAlign='center';
+    ctx.fillText(label,p.x,p.y+(main?20:16));
+  }
+
+  // View info
+  const dirN=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  const di=Math.round(view.centerAz/22.5)%16;
+  document.getElementById('viewInfo').innerHTML=`Looking: ${dirN[di]} (${view.centerAz.toFixed(0)}°)<br>Alt: ${view.centerAlt.toFixed(0)}° | FOV: ${view.fov.toFixed(0)}°`;
+}
+
+function renderAll() {
+  renderBackground();
+  renderOverlay();
+}
+
+function updateSky() {
+  computePositions();
+  renderAll();
+}
+
+// ============================================================
+// INTERACTION
+// ============================================================
+let dragging=false, dragSX, dragSY, dragAz0, dragAlt0;
+overlay.addEventListener('mousedown', e=>{
+  dragging=true; dragSX=e.clientX; dragSY=e.clientY;
+  dragAz0=view.centerAz; dragAlt0=view.centerAlt;
+  overlay.style.cursor='grabbing';
+});
+window.addEventListener('mousemove', e=>{
+  if(!dragging)return;
+  const sens=view.fov/view.radius;
+  view.centerAz=((dragAz0-(e.clientX-dragSX)*sens)+360)%360;
+  view.centerAlt=Math.max(-5,Math.min(90,dragAlt0+(e.clientY-dragSY)*sens));
+  renderAll();
+});
+window.addEventListener('mouseup', ()=>{dragging=false;overlay.style.cursor='grab';});
+overlay.addEventListener('wheel', e=>{
+  e.preventDefault();
+  view.fov=Math.max(10,Math.min(150,view.fov+e.deltaY*0.05));
+  renderAll();
+},{passive:false});
+overlay.style.cursor='grab';
+
+// Touch support
+let touchDist0 = 0;
+overlay.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) {
+    dragging = true;
+    dragSX = e.touches[0].clientX; dragSY = e.touches[0].clientY;
+    dragAz0 = view.centerAz; dragAlt0 = view.centerAlt;
+  } else if (e.touches.length === 2) {
+    touchDist0 = Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY);
+  }
+}, { passive: true });
+overlay.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (e.touches.length === 1 && dragging) {
+    const sens = view.fov / view.radius;
+    view.centerAz = ((dragAz0 - (e.touches[0].clientX - dragSX) * sens) + 360) % 360;
+    view.centerAlt = Math.max(-5, Math.min(90, dragAlt0 + (e.touches[0].clientY - dragSY) * sens));
+    renderAll();
+  } else if (e.touches.length === 2 && touchDist0 > 0) {
+    const d = Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY);
+    view.fov = Math.max(10, Math.min(150, view.fov * (touchDist0 / d)));
+    touchDist0 = d;
+    renderAll();
+  }
+}, { passive: false });
+overlay.addEventListener('touchend', () => { dragging = false; touchDist0 = 0; });
+
+// Tooltip
+overlay.addEventListener('mousemove', e=>{
+  if(dragging)return;
+  const rect=overlay.getBoundingClientRect();
+  const mx=e.clientX-rect.left, my=e.clientY-rect.top;
+  const tt=document.getElementById('tooltip');
+  let best=null,bd=15;
+  for(const s of computedStars){
+    if(!s.name||s.alt<0)continue;
+    const p=project(s.alt,s.az);if(!p)continue;
+    const d=Math.hypot(p.x-mx,p.y-my);
+    if(d<bd){best=s;bd=d;}
+  }
+  if(best){
+    tt.style.display='block';tt.style.left=(mx+15)+'px';tt.style.top=(my-10)+'px';
+    tt.innerHTML=`<b>${best.name}</b><br>Mag ${best.mag.toFixed(2)} | RA ${(best.ra/15).toFixed(2)}h Dec ${best.dec.toFixed(1)}°<br>Alt ${best.alt.toFixed(1)}° Az ${best.az.toFixed(1)}°`;
+  } else tt.style.display='none';
+});
+
+// UI buttons
+function useMyLocation(){
+  if(!navigator.geolocation){alert('Geolocation not supported');return;}
+  navigator.geolocation.getCurrentPosition(p=>{
+    document.getElementById('lat').value=p.coords.latitude.toFixed(4);
+    document.getElementById('lon').value=p.coords.longitude.toFixed(4);
+    updateSky();
+  },()=>alert('Could not get location'));
+}
+function useNow(){
+  const n=new Date();
+  document.getElementById('dateInput').value=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
+  document.getElementById('timeInput').value=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0');
+  updateSky();
+}
+
+['lat','lon','dateInput','timeInput'].forEach(id=>document.getElementById(id).addEventListener('change',updateSky));
+
+// ============================================================
+// INIT
+// ============================================================
+function init() {
+  useNow();
+  resizeCanvases();
+  window.addEventListener('resize', ()=>{resizeCanvases();renderAll();});
+  updateSky();
+}
+init();
+</script>
+</body>
+</html>
