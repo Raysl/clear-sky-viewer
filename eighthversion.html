@@ -1,0 +1,2289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="theme-color" content="#0a0a1e" />
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<title>SkyEngine — Night Sky Viewer</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #000;
+  color: #ccc;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  overflow: hidden;
+  height: 100vh;
+}
+#app { display: flex; height: 100vh; }
+#sidebar {
+  position: relative;
+  width: 300px;
+  background: linear-gradient(180deg, rgba(8,10,25,0.97) 0%, rgba(5,5,18,0.97) 100%);
+  padding: 20px;
+  overflow-y: auto;
+  border-right: 1px solid rgba(60,80,140,0.15);
+  box-shadow: inset -1px 0 0 rgba(100,150,255,0.05), 2px 0 20px rgba(0,0,0,0.5);
+  flex-shrink: 0;
+  z-index: 10;
+}
+#sidebar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #4488cc, #7eb8ff, #4488cc, transparent);
+  opacity: 0.4;
+}
+#sidebar h1 {
+  font-size: 1.3em;
+  color: #7eb8ff;
+  margin-bottom: 4px;
+}
+#sidebar .subtitle {
+  font-size: 0.8em;
+  color: #667;
+  margin-bottom: 18px;
+}
+.field { margin-bottom: 14px; }
+.field label {
+  display: block;
+  font-size: 0.8em;
+  color: #889;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.field input {
+  width: 100%;
+  padding: 8px 10px;
+  background: #0d0d20;
+  border: 1px solid #333;
+  color: #ddd;
+  border-radius: 6px;
+  font-size: 0.95em;
+}
+.field input:focus {
+  outline: none;
+  border-color: #4488cc;
+}
+button {
+  padding: 8px 14px;
+  background: #1a2a4c;
+  color: #aac;
+  border: 1px solid #2a3a5c;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85em;
+  transition: background 0.2s;
+}
+button:hover { background: #2a3a6c; }
+.btn-primary {
+  background: #1a44aa;
+  color: #fff;
+  border-color: #2255bb;
+}
+.btn-primary:hover { background: #2a55cc; }
+.btn-live-active { background: #1a6b2a !important; border-color: #2a9b3a !important; color: #8f8 !important; }
+.btn-live-active:hover { background: #1a8b3a !important; }
+.btn-row { display: flex; gap: 6px; margin-bottom: 14px; }
+.section {
+  border-top: 1px solid #1a1a2a;
+  padding-top: 14px;
+  margin-top: 14px;
+}
+.section h3 {
+  font-size: 0.85em;
+  color: #558;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid rgba(60,80,140,0.1);
+  padding-bottom: 6px;
+}
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 0.9em;
+  cursor: pointer;
+}
+.toggle input { accent-color: #4488cc; }
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: #1a2040;
+  border-radius: 2px;
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  background: #4488cc;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid #0d0d20;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: #4488cc;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid #0d0d20;
+}
+#sidebar .field input[type="range"] {
+  transition: opacity 0.3s;
+}
+.field label span {
+  transition: color 0.3s;
+}
+#loadingOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(ellipse at center, #0a0a2e 0%, #000 100%);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.8s ease;
+}
+#loadingOverlay.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+#loadingOverlay .spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #1a2a4c;
+  border-top-color: #4488cc;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+#loadingOverlay h2 {
+  color: #7eb8ff;
+  margin-top: 20px;
+  font-size: 1.2em;
+  font-weight: 400;
+}
+#loadingOverlay p {
+  color: #445;
+  margin-top: 8px;
+  font-size: 0.85em;
+}
+#citySuggestions {
+  position: absolute;
+  left: 0; right: 0;
+  top: 100%;
+  background: #0d0d20;
+  border: 1px solid #333;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 100;
+  display: none;
+}
+#citySuggestions .sg-item {
+  padding: 7px 10px;
+  cursor: pointer;
+  font-size: 0.88em;
+  color: #ccc;
+  border-bottom: 1px solid #1a1a2a;
+}
+#citySuggestions .sg-item:hover,
+#citySuggestions .sg-item.active {
+  background: #1a2a4c;
+  color: #fff;
+}
+#citySuggestions .sg-item .sg-region {
+  color: #667;
+  font-size: 0.85em;
+}
+#moonInfo, #twilightInfo, #planetInfo {
+  background: rgba(10,15,35,0.6);
+  border: 1px solid rgba(60,80,140,0.15);
+  border-radius: 10px;
+  padding: 12px 14px;
+  backdrop-filter: blur(4px);
+  margin-top: 10px;
+  font-size: 0.85em;
+  line-height: 1.6;
+}
+#moonInfo .phase-icon {
+  font-size: 1.5em;
+  margin-right: 6px;
+}
+#canvasWrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #000;
+}
+#canvasWrap canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+#glCanvas { z-index: 1; }
+#overlayCanvas { z-index: 2; }
+#tooltip {
+  position: absolute;
+  z-index: 10;
+  pointer-events: none;
+  background: rgba(5, 5, 20, 0.92);
+  color: #dde;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.8em;
+  display: none;
+  border: 1px solid #335;
+  white-space: nowrap;
+}
+#viewInfo {
+  position: absolute;
+  z-index: 10;
+  top: 12px;
+  right: 16px;
+  font-size: 0.75em;
+  color: #556;
+  text-align: right;
+  pointer-events: none;
+  line-height: 1.5;
+}
+#loadingMsg {
+  position: absolute;
+  z-index: 20;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #558;
+  font-size: 1.1em;
+}
+/* Hamburger menu button - hidden on desktop */
+#menuBtn {
+  display: none;
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 30;
+  width: 44px;
+  height: 44px;
+  background: rgba(8, 8, 20, 0.85);
+  border: 1px solid #333;
+  border-radius: 10px;
+  color: #7eb8ff;
+  font-size: 22px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+}
+/* Mobile styles */
+@media (max-width: 768px) {
+  #app { flex-direction: column; }
+  #sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: 280px;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    z-index: 25;
+    padding-top: 60px;
+  }
+  #sidebar.open { transform: translateX(0); }
+  #menuBtn { display: flex; }
+  /* Overlay behind sidebar when open */
+  #sidebarOverlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 20;
+  }
+  #sidebarOverlay.show { display: block; }
+  #canvasWrap { width: 100%; height: 100vh; }
+  #viewInfo { top: 60px; right: 10px; }
+  .btn-row { flex-wrap: wrap; }
+  button { padding: 10px 14px; font-size: 0.9em; }
+}
+#starCount {
+  display: inline-block;
+  background: rgba(20,40,80,0.5);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.85em;
+  color: #8af;
+}
+/* Safe area padding for notched phones */
+@supports (padding: env(safe-area-inset-top)) {
+  #menuBtn { top: calc(12px + env(safe-area-inset-top)); left: calc(12px + env(safe-area-inset-left)); }
+  #sidebar.open { padding-top: calc(60px + env(safe-area-inset-top)); }
+}
+</style>
+</head>
+<body>
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <h2>SkyEngine</h2>
+  <p>Loading star catalog...</p>
+</div>
+<div id="app">
+  <button id="menuBtn" onclick="toggleSidebar()">&#9776;</button>
+  <div id="sidebarOverlay" onclick="toggleSidebar()"></div>
+  <div id="sidebar">
+    <h1>SkyEngine</h1>
+    <div class="subtitle">Realistic naked-eye sky simulation</div>
+
+    <div class="field" style="position:relative">
+      <label>Location</label>
+      <input type="text" id="cityInput" placeholder="Type a city name..." autocomplete="off" value="Ann Arbor, MI, US" />
+      <div id="citySuggestions"></div>
+    </div>
+    <input type="hidden" id="lat" value="42.28" />
+    <input type="hidden" id="lon" value="-83.74" />
+    <div id="coordDisplay" style="font-size:0.75em;color:#667;margin:-8px 0 10px 0"></div>
+    <div class="btn-row">
+      <button onclick="useMyLocation()" class="btn-primary">Use My Location</button>
+    </div>
+
+    <div class="field">
+      <label>Date</label>
+      <input type="date" id="dateInput" />
+    </div>
+    <div class="field">
+      <label>Time (local)</label>
+      <input type="time" id="timeInput" step="60" onchange="syncSliderFromTimeInput()" />
+    </div>
+    <div class="field">
+      <label>Time Slider — <span id="timeSliderLabel">12:00</span></label>
+      <input type="range" id="timeSlider" min="0" max="1439" step="1" value="720"
+             oninput="onTimeSlider()" style="width:100%;" />
+      <div style="display:flex; justify-content:space-between; font-size:10px; color:#667; margin-top:1px;">
+        <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:59</span>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button onclick="useNow()">Now</button>
+      <button id="liveBtn" onclick="toggleLive()">Live</button>
+      <button onclick="updateSky()" class="btn-primary">Update Sky</button>
+    </div>
+
+    <div class="section">
+      <h3>View</h3>
+      <div class="field">
+        <label>Display Gamma</label>
+        <input type="range" id="gammaSlider" min="0.85" max="1.25" step="0.05" value="1.0" oninput="renderAll()" />
+      </div>
+      <div class="field">
+        <label>Light Pollution — <span id="bortleLabel">Bortle 2: Typical dark site (limit mag 7.1)</span></label>
+        <input type="range" id="lpSlider" min="1" max="9" step="1" value="2" oninput="updateBortle(); updateSky()" />
+        <div id="starCount" style="font-size:11px; color:#8af; margin-top:2px; text-align:right;">★ 0 stars visible</div>
+      </div>
+      <div class="field">
+        <label>Atmosphere — <span id="clarityLabel">Average clarity</span></label>
+        <input type="range" id="claritySlider" min="1" max="5" step="1" value="3" oninput="updateClarity(); updateSky()" />
+        <div style="display:flex; justify-content:space-between; font-size:10px; color:#667; margin-top:1px;">
+          <span>Excellent</span><span>Good</span><span>Average</span><span>Poor</span><span>Hazy</span>
+        </div>
+      </div>
+      <label class="toggle"><input type="checkbox" id="showConst" checked onchange="renderOverlay()" /> Constellation lines</label>
+      <label class="toggle"><input type="checkbox" id="showLabels" checked onchange="renderOverlay()" /> Star labels</label>
+      <label class="toggle"><input type="checkbox" id="showGrid" onchange="renderOverlay()" /> Alt/Az grid</label>
+      <label class="toggle"><input type="checkbox" id="showTwinkle" checked onchange="toggleTwinkle()" /> Star twinkling</label>
+    </div>
+
+    <div class="section">
+      <h3>Sun & Twilight</h3>
+      <div id="twilightInfo" style="background:#0a0a1e; border-radius:8px; padding:8px 10px; font-size:0.85em; line-height:1.6;">Loading...</div>
+    </div>
+    <div class="section">
+      <h3>Moon</h3>
+      <div id="moonInfo">Loading...</div>
+    </div>
+
+    <div class="section">
+      <h3>Planets</h3>
+      <div id="planetInfo" style="font-size:0.85em; line-height:1.5;">Loading...</div>
+    </div>
+
+    <div class="section" style="font-size:0.75em;color:#445;line-height:1.5">
+      <b>Controls:</b> Drag to pan. Scroll/pinch to zoom. Tap/hover stars for info.
+    </div>
+  </div>
+
+  <div id="canvasWrap">
+    <canvas id="glCanvas"></canvas>
+    <canvas id="overlayCanvas"></canvas>
+    <div id="tooltip"></div>
+    <div id="viewInfo"></div>
+    <div id="loadingMsg">Loading sky map...</div>
+  </div>
+</div>
+
+<script id="vs" type="x-shader/x-vertex">
+attribute vec2 aPos;
+varying vec2 vUV;
+void main() {
+  vUV = aPos * 0.5 + 0.5;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+precision highp float;
+
+varying vec2 vUV;
+uniform sampler2D uSkyTex;
+uniform mat3 uViewToGal;
+uniform float uFovTan;
+uniform float uAspect;
+uniform float uGamma;
+uniform float uLightPollution;
+uniform mat3 uCamToENU;
+uniform vec3 uMoonENUDir;  // moon direction in ENU coords (normalized), w=0 if moon down
+uniform float uMoonIllum;  // 0..1 moon illumination fraction
+uniform float uTwilightBright; // 0 (night) to 1 (daytime) from twilight model
+uniform vec3 uSunENUDir;   // sun direction in ENU (for twilight gradient)
+uniform float uHaze;       // 0 (crystal clear) to 0.8 (very hazy)
+
+const float PI = 3.14159265359;
+
+void main() {
+  float px = (vUV.x - 0.5) * 2.0 * uFovTan * uAspect;
+  float py = (vUV.y - 0.5) * 2.0 * uFovTan;
+
+  vec3 camDir = normalize(vec3(px, py, 1.0));
+  vec3 galDir = normalize(uViewToGal * camDir);
+
+  float l = atan(galDir.y, galDir.x);
+  if (l < 0.0) l += 2.0 * PI;
+  float b = asin(clamp(galDir.z, -1.0, 1.0));
+
+  vec2 texUV = vec2(l / (2.0 * PI), 0.5 - b / PI);
+  vec3 milky = texture2D(uSkyTex, texUV).rgb;
+
+  vec3 enuDir = normalize(uCamToENU * camDir);
+  float sinAlt = enuDir.z;
+  float altDeg = asin(clamp(sinAlt, -1.0, 1.0)) * (180.0 / PI);
+
+  vec3 baseSky = vec3(0.012, 0.016, 0.024);
+  float galLat = abs(b);
+  float galMask = exp(-galLat * 3.2);
+  float mwLuma = dot(milky, vec3(0.299, 0.587, 0.114));
+  float mwStrength = smoothstep(0.16, 0.75, mwLuma);
+
+  // Milky Way fades: full at Bortle 1-3, fading 4-6, gone by Bortle 7+
+  float mwFade = 1.0 - smoothstep(0.25, 0.72, uLightPollution);
+  vec3 skyColor = baseSky + milky * mwStrength * galMask * 0.30 * mwFade;
+
+  // Natural sky: darker near horizon, atmospheric extinction
+  float zenithFade = smoothstep(0.0, 55.0, altDeg);
+  skyColor = mix(skyColor, baseSky, (1.0 - zenithFade) * 0.22);
+  float airmass = 1.0 / max(0.14, max(sinAlt, 0.03));
+  float ext = exp(-0.11 * max(0.0, airmass - 1.0));
+  skyColor *= mix(1.0, ext, 0.42);
+
+  // --- Light pollution effects (Bortle scale) ---
+  float lp = uLightPollution;
+  float lp2 = lp * lp;
+
+  // 1. Skyglow: diffuse brightness across entire sky, altitude-dependent
+  //    Stronger near horizon, but even zenith gets brighter at high Bortle
+  float altGlow = 0.25 + 0.75 * pow(clamp(1.0 - max(sinAlt, 0.0), 0.0, 1.0), 1.4);
+  vec3 skyGlow = vec3(0.20, 0.16, 0.10) * lp2 * altGlow * 0.9;
+  skyColor += skyGlow;
+
+  // 2. Horizon light dome: warm concentrated glow near horizon
+  float horizonGlow = pow(clamp(1.0 - max(sinAlt, 0.0), 0.0, 1.0), 2.0);
+  vec3 cityGlow = vec3(0.55, 0.38, 0.18) * horizonGlow * lp2 * 0.85;
+  skyColor += cityGlow;
+
+  // 3. Desaturation: LP washes out color contrast
+  float luma = dot(skyColor, vec3(0.299, 0.587, 0.114));
+  vec3 gray = vec3(luma);
+  skyColor = mix(skyColor, gray, lp * 0.50);
+
+  // 4. At very high LP, push the whole sky toward a bright gray-orange wash
+  vec3 urbanSky = vec3(0.18, 0.15, 0.12) * lp;
+  skyColor = mix(skyColor, urbanSky, lp2 * 0.55);
+
+  // --- Atmospheric haze ---
+  // Haze dims the sky, washes out contrast, and adds a milky veil near the horizon
+  if (uHaze > 0.01) {
+    // Haze veil: strongest near horizon, fading with altitude
+    float hazeFactor = pow(clamp(1.0 - max(sinAlt, 0.0), 0.0, 1.0), 1.0);
+    vec3 hazeColor = vec3(0.08, 0.08, 0.10); // neutral gray-blue haze
+    skyColor = mix(skyColor, hazeColor, uHaze * hazeFactor * 0.6);
+
+    // Haze also reduces MW contrast everywhere (even at zenith)
+    float hazeLuma = dot(skyColor, vec3(0.299, 0.587, 0.114));
+    skyColor = mix(skyColor, vec3(hazeLuma), uHaze * 0.3);
+  }
+
+  // --- Moon sky glow ---
+  // Bright moon adds a soft wash of light, strongest near the moon
+  if (uMoonIllum > 0.02 && uMoonENUDir.z > -0.05) {
+    float moonCos = dot(enuDir, uMoonENUDir);
+    float moonAngDist = acos(clamp(moonCos, -1.0, 1.0)); // radians
+    float moonAngDeg = moonAngDist * (180.0 / PI);
+
+    // Global sky brightness increase from moon
+    float moonAltFactor = clamp(uMoonENUDir.z * 3.0, 0.0, 1.0);
+    float globalMoonGlow = 0.03 * pow(uMoonIllum, 0.7) * moonAltFactor;
+
+    // Scattered moonlight aureole — bright halo around the moon
+    float aureole = 0.0;
+    if (moonAngDeg < 60.0) {
+      float d = max(1.5, moonAngDeg);
+      aureole = 0.08 * uMoonIllum * moonAltFactor * pow(10.0 / d, 1.5);
+    }
+
+    vec3 moonLight = vec3(0.60, 0.65, 0.75) * (globalMoonGlow + aureole);
+    skyColor += moonLight;
+
+    // Moon also fades the Milky Way
+    float moonMWFade = 1.0 - 0.6 * pow(uMoonIllum, 0.5) * moonAltFactor;
+    skyColor = mix(skyColor, vec3(dot(skyColor, vec3(0.299, 0.587, 0.114))),
+                   (1.0 - moonMWFade) * 0.4);
+  }
+
+  // --- Twilight sky coloring ---
+  if (uTwilightBright > 0.001) {
+    float tb = uTwilightBright;
+
+    // Twilight gradient: brighter near the sun, dimmer opposite
+    float sunCos = dot(enuDir, uSunENUDir);
+    float sunProximity = clamp(sunCos * 0.5 + 0.5, 0.0, 1.0); // 0=opposite, 1=toward sun
+
+    // Deep twilight: dark blue overhead, warm colors near horizon toward sun
+    // Civil twilight to day: progressively brighter blue sky
+    vec3 twilightZenith = mix(
+      vec3(0.04, 0.06, 0.14),    // deep astronomical twilight — dark navy
+      vec3(0.30, 0.50, 0.85),    // daytime blue sky
+      smoothstep(0.0, 0.9, tb)
+    );
+
+    // Warm horizon glow near the sun (sunset/sunrise colors)
+    vec3 warmGlow = mix(
+      vec3(0.12, 0.06, 0.04),    // faint warm at deep twilight
+      vec3(0.95, 0.55, 0.25),    // orange/gold at civil twilight
+      smoothstep(0.0, 0.7, tb)
+    );
+
+    // Blend: near horizon + near sun = warm, high up = blue
+    float horizFactor = pow(clamp(1.0 - max(sinAlt, 0.0), 0.0, 1.0), 1.2);
+    float sunHorizGlow = horizFactor * pow(sunProximity, 2.0);
+
+    vec3 twilightColor = mix(twilightZenith, warmGlow, sunHorizGlow * 0.7);
+
+    // Altitude-based brightness: sky is brighter above horizon
+    float altBright = smoothstep(-5.0, 20.0, altDeg);
+    twilightColor *= (0.3 + 0.7 * altBright);
+
+    // Blend twilight over the night sky
+    skyColor = mix(skyColor, twilightColor, tb);
+  }
+
+  // Horizon terrain silhouette
+  float azDeg = atan(enuDir.x, enuDir.y) * (180.0 / PI);
+  float terrainNoise = sin(azDeg * 3.7) * 0.3 + sin(azDeg * 7.3 + 1.5) * 0.15 + sin(azDeg * 13.1 + 3.0) * 0.08;
+  float terrainLine = terrainNoise * 1.5 + 0.3; // ~0-2 degrees above horizon
+  float horizMask = smoothstep(-0.5, terrainLine, altDeg);
+
+  // Horizon atmosphere glow (warm band near horizon)
+  float horizGlow = exp(-max(0.0, altDeg - terrainLine) * 0.15) * 0.03;
+  vec3 horizColor = mix(vec3(0.06, 0.04, 0.03), vec3(0.15, 0.10, 0.06), uLightPollution);
+  skyColor += horizColor * horizGlow;
+
+  // Terrain fill below horizon (dark ground with slight ambient)
+  if (altDeg < terrainLine) {
+    float groundDepth = clamp((terrainLine - altDeg) / 3.0, 0.0, 1.0);
+    vec3 groundColor = vec3(0.008, 0.008, 0.012) + vec3(0.01) * uLightPollution;
+    skyColor = mix(skyColor, groundColor, groundDepth);
+  }
+
+  // Light pollution dome glow (brightening near horizon under LP)
+  if (uLightPollution > 0.05) {
+    float lpHorizGlow = pow(clamp(1.0 - max(sinAlt, 0.0), 0.0, 1.0), 0.8);
+    float lpDome = uLightPollution * lpHorizGlow * 0.08;
+    vec3 lpDomeColor = vec3(0.15, 0.12, 0.08); // warm sodium light color
+    skyColor += lpDomeColor * lpDome;
+  }
+
+  skyColor *= horizMask;
+
+  skyColor = pow(clamp(skyColor, 0.0, 1.0), vec3(uGamma));
+
+  gl_FragColor = vec4(clamp(skyColor, 0.0, 1.0), 1.0);
+}
+</script>
+
+<script src="city_db.js?v=4"></script>
+<script src="star_catalog.js?v=4"></script>
+<script>
+
+const CONST_LINES = {
+  "Ursa Major":[["Dubhe","Merak"],["Merak","Phecda"],["Phecda","Megrez"],["Megrez","Alioth"],["Alioth","Mizar"],["Mizar","Alkaid"],["Megrez","Dubhe"]],
+  "Orion":[["Betelgeuse","Bellatrix"],["Betelgeuse","Mintaka"],["Bellatrix","Mintaka"],["Mintaka","Alnilam"],["Alnilam","Alnitak"],["Alnitak","Saiph"],["Mintaka","Rigel"],["Rigel","Saiph"]],
+  "Cassiopeia":[["Schedar","Caph"],["Schedar","Gamma Cas"],["Gamma Cas","Ruchbah"],["Ruchbah","Segin"]],
+  "Cygnus":[["Deneb","Sadr"],["Sadr","Albireo"]],
+  "Gemini":[["Pollux","Castor"],["Pollux","Alhena"]],
+  "Leo":[["Regulus","Denebola"]],
+  "Taurus":[["Aldebaran","Elnath"],["Aldebaran","Alcyone"]]
+};
+
+const DEG = Math.PI / 180;
+const RAD = 180 / Math.PI;
+const PI = Math.PI;
+const TAU = 2 * Math.PI;
+
+const FULL_CATALOG = STAR_CATALOG;
+
+function julianDate(y, m, d, ut) {
+  if (m <= 2) { y--; m += 12; }
+  const A = Math.floor(y / 100);
+  const B = 2 - A + Math.floor(A / 4);
+  return Math.floor(365.25 * (y + 4716)) + Math.floor(30.6001 * (m + 1)) + d + ut / 24 + B - 1524.5;
+}
+
+function gmst(jd) {
+  const T = (jd - 2451545) / 36525;
+  return (280.46061837 + 360.98564736629 * (jd - 2451545) + 0.000387933 * T * T - T * T * T / 38710000 + 360000.0) % 360;
+}
+
+function raDecToAltAz(ra, dec, lat, lon, jd) {
+  const lst = (gmst(jd) + lon + 360) % 360;
+  const ha = (lst - ra + 360) % 360;
+  const h = ha * DEG;
+  const d = dec * DEG;
+  const p = lat * DEG;
+  const sinA = Math.sin(d) * Math.sin(p) + Math.cos(d) * Math.cos(p) * Math.cos(h);
+  const alt = Math.asin(sinA);
+  const cosA = Math.cos(alt);
+  if (cosA < 1e-10) return { alt: alt * RAD, az: 0 };
+  const az = Math.atan2(
+    -Math.cos(d) * Math.sin(h) / cosA,
+    (Math.sin(d) * Math.cos(p) - Math.cos(d) * Math.sin(p) * Math.cos(h)) / cosA
+  );
+  return { alt: alt * RAD, az: ((az * RAD) + 360) % 360 };
+}
+
+// Kasten & Young (1989) airmass model — accurate down to the horizon
+// Returns the relative airmass X(z) for a given true altitude in degrees
+function airmass(altDeg) {
+  if (altDeg <= 0) return 40; // cap near/below horizon
+  const z = 90 - altDeg; // zenith angle
+  const zr = z * DEG;
+  // X = 1 / [cos(z) + 0.50572·(96.07995 - z)^-1.6364]
+  const denom = Math.cos(zr) + 0.50572 * Math.pow(96.07995 - z, -1.6364);
+  return Math.min(40, 1 / Math.max(0.025, denom));
+}
+
+// Atmospheric extinction coefficient depends on clarity:
+//   1 = Excellent (dry mountain): ~0.12 mag/airmass
+//   2 = Good (clear):             ~0.18 mag/airmass
+//   3 = Average:                  ~0.25 mag/airmass
+//   4 = Poor (humid/hazy):        ~0.35 mag/airmass
+//   5 = Very poor (fog/dust):     ~0.50 mag/airmass
+function getExtinctionCoeff() {
+  const clarity = +document.getElementById('claritySlider').value;
+  const coeffs = [0.12, 0.18, 0.25, 0.35, 0.50];
+  return coeffs[clarity - 1] || 0.25;
+}
+
+function atmosphericExtinction(alt, mag) {
+  if (alt <= 0) return 99;
+  const X = airmass(alt);
+  const k = getExtinctionCoeff();
+  return mag + k * (X - 1); // zero extinction at zenith (X=1)
+}
+
+// Bortle scale: naked-eye limiting magnitudes and expected visible star counts
+// Based on John Bortle's original 2001 scale and IDA sky quality research
+// mag = faintest star visible to naked eye at zenith
+// stars = approximate total naked-eye stars visible across full sky hemisphere
+const BORTLE_INFO = [
+  null, // index 0 unused
+  { mag: 7.6, stars: 11500, desc: 'Excellent dark site' },
+  { mag: 7.1, stars:  8900, desc: 'Typical dark site' },
+  { mag: 6.6, stars:  6400, desc: 'Rural sky' },
+  { mag: 6.2, stars:  4500, desc: 'Rural/suburban transition' },
+  { mag: 5.6, stars:  2500, desc: 'Suburban sky' },
+  { mag: 5.1, stars:  1400, desc: 'Bright suburban' },
+  { mag: 4.6, stars:   700, desc: 'Suburban/urban transition' },
+  { mag: 4.0, stars:   300, desc: 'City sky' },
+  { mag: 3.0, stars:    50, desc: 'Inner-city sky' }
+];
+
+function getBortle() { return +document.getElementById('lpSlider').value; }
+function bortleToLP(bortle) { return (bortle - 1) / 8; }
+
+function updateBortle() {
+  const b = getBortle();
+  const info = BORTLE_INFO[b];
+  document.getElementById('bortleLabel').textContent =
+    'Bortle ' + b + ': ' + info.desc + ' (limit mag ' + info.mag.toFixed(1) + ')';
+}
+
+const CLARITY_INFO = [
+  null,
+  { name: 'Excellent (dry mountain)', coeff: 0.12, haze: 0.0 },
+  { name: 'Good (clear night)',       coeff: 0.18, haze: 0.15 },
+  { name: 'Average clarity',          coeff: 0.25, haze: 0.30 },
+  { name: 'Poor (humid/hazy)',        coeff: 0.35, haze: 0.55 },
+  { name: 'Very poor (fog/dust)',     coeff: 0.50, haze: 0.80 }
+];
+
+function getClarity() { return +document.getElementById('claritySlider').value; }
+
+function updateClarity() {
+  const c = getClarity();
+  const info = CLARITY_INFO[c];
+  document.getElementById('clarityLabel').textContent =
+    info.name + ' (k=' + info.coeff.toFixed(2) + ')';
+}
+
+function limitingMagnitude(lp) {
+  // Interpolate between Bortle class limiting magnitudes
+  const bortle = 1 + lp * 8;
+  const lo = Math.max(1, Math.min(9, Math.floor(bortle)));
+  const hi = Math.min(9, lo + 1);
+  const t = bortle - lo;
+  return BORTLE_INFO[lo].mag * (1 - t) + BORTLE_INFO[hi].mag * t;
+}
+
+// Light pollution reduces visibility more near the horizon (thicker atmosphere + skyglow)
+function lpHorizonPenalty(altDeg, lp) {
+  if (lp < 0.01) return 0;
+  // At low altitude, light pollution washes out an extra ~1-2 magnitudes
+  const altFactor = Math.min(1, altDeg / 40);
+  return lp * (1.5 - 1.2 * altFactor);
+}
+
+// Moon washout model — based on Krisciunas & Schaefer (1991) sky brightness model
+// The moon raises sky background brightness, reducing how faint you can see.
+// Effect depends on: moon illumination, moon altitude, and angular distance to star.
+//
+// Returns magnitude penalty to add to a star's effective magnitude.
+// moonIllum: 0 (new) to 1 (full)
+// moonAlt: moon altitude in degrees (negative = below horizon = no effect)
+// moonAngDist: angular distance from moon to star in degrees
+function moonWashout(moonIllum, moonAlt, moonAngDist) {
+  // Moon below horizon contributes no washout
+  if (moonAlt < -5) return 0;
+  // New moon or very thin crescent has negligible effect
+  if (moonIllum < 0.02) return 0;
+
+  // Global sky brightness increase from moon (limiting magnitude reduction)
+  // Full moon at zenith: ~2.5 mag loss; half moon: ~1.2 mag; crescent: ~0.3 mag
+  // Moon near horizon is dimmed by extinction, reducing its effect
+  const moonAltFactor = moonAlt > 0 ? Math.min(1, moonAlt / 50) : 0;
+  const globalLoss = 2.5 * Math.pow(moonIllum, 0.7) * moonAltFactor;
+
+  // Proximity effect — stars near the moon are harder to see due to scattered moonlight
+  // Scattered light falls off roughly as 1/distance² from the moon
+  // Strong within ~15°, moderate to ~45°, negligible beyond ~90°
+  let proximityLoss = 0;
+  if (moonAngDist < 90 && moonAlt > 0) {
+    const dist = Math.max(2, moonAngDist); // clamp to avoid division issues
+    proximityLoss = moonIllum * 2.0 * Math.pow(10 / dist, 1.2) * moonAltFactor;
+    proximityLoss = Math.min(proximityLoss, 4.0); // cap at 4 mag
+  }
+
+  return globalLoss + proximityLoss;
+}
+
+// Angular distance between two points given in (alt, az) degrees
+function angularDistance(alt1, az1, alt2, az2) {
+  const a1 = alt1 * DEG, a2 = alt2 * DEG;
+  const daz = (az2 - az1) * DEG;
+  const cosD = Math.sin(a1) * Math.sin(a2) + Math.cos(a1) * Math.cos(a2) * Math.cos(daz);
+  return Math.acos(Math.max(-1, Math.min(1, cosD))) * RAD;
+}
+
+// --- Twilight model ---
+// Sun altitude determines sky state:
+//   > 0°:    Daytime (sun above horizon) — no stars visible
+//   0° to -6°:  Civil twilight — brightest stars/planets barely visible
+//   -6° to -12°: Nautical twilight — bright stars visible, faint stars washed out
+//   -12° to -18°: Astronomical twilight — most stars visible, faintest washed out
+//   < -18°:  True night — full star visibility
+//
+// Returns an object:
+//   magPenalty: magnitude penalty added to all stars (0 at night, large during day)
+//   skyBright: 0 (night) to 1 (daytime) for shader sky brightness
+//   label: human-readable twilight status
+function twilightState(sunAltDeg) {
+  if (sunAltDeg > 1) {
+    // Daytime
+    return { magPenalty: 20, skyBright: 1.0, label: 'Daytime' };
+  } else if (sunAltDeg > 0) {
+    // Sun on horizon — transition to civil
+    const t = sunAltDeg; // 0..1
+    return {
+      magPenalty: 8 + 12 * t,
+      skyBright: 0.7 + 0.3 * t,
+      label: 'Sunrise/Sunset'
+    };
+  } else if (sunAltDeg > -6) {
+    // Civil twilight: only brightest stars (mag < ~1) visible
+    // Sun -6° to 0°, penalty 8 to ~3
+    const t = (-sunAltDeg) / 6; // 0 at horizon, 1 at -6°
+    return {
+      magPenalty: 8 - 5 * t,
+      skyBright: 0.7 - 0.45 * t,
+      label: 'Civil twilight'
+    };
+  } else if (sunAltDeg > -12) {
+    // Nautical twilight: bright stars visible
+    // Sun -12° to -6°, penalty ~3 to ~1
+    const t = (-sunAltDeg - 6) / 6; // 0 at -6°, 1 at -12°
+    return {
+      magPenalty: 3 - 2 * t,
+      skyBright: 0.25 - 0.18 * t,
+      label: 'Nautical twilight'
+    };
+  } else if (sunAltDeg > -18) {
+    // Astronomical twilight: most stars visible, faintest still washed out
+    // Sun -18° to -12°, penalty ~1 to 0
+    const t = (-sunAltDeg - 12) / 6; // 0 at -12°, 1 at -18°
+    return {
+      magPenalty: 1 - t,
+      skyBright: 0.07 - 0.07 * t,
+      label: 'Astronomical twilight'
+    };
+  } else {
+    // True night
+    return { magPenalty: 0, skyBright: 0, label: 'Night' };
+  }
+}
+
+function moonPosition(jd) {
+  const T = (jd - 2451545) / 36525;
+  let Lp = 218.3165 + 481267.8813 * T;
+  let D = 297.8502 + 445267.1115 * T;
+  let M = 357.5291 + 35999.0503 * T;
+  let Mp = 134.9634 + 477198.8676 * T;
+  let F = 93.2720 + 483202.0175 * T;
+  [Lp, D, M, Mp, F] = [Lp, D, M, Mp, F].map(v => ((v % 360) + 360) % 360);
+  const lon = Lp + 6.289 * Math.sin(Mp * DEG) + 1.274 * Math.sin((2 * D - Mp) * DEG) + 0.658 * Math.sin(2 * D * DEG) + 0.214 * Math.sin(2 * Mp * DEG) - 0.186 * Math.sin(M * DEG);
+  const lat = 5.128 * Math.sin(F * DEG) + 0.281 * Math.sin((Mp + F) * DEG) + 0.278 * Math.sin((Mp - F) * DEG);
+  const obl = (23.4393 - 0.013 * T) * DEG;
+  const lonR = lon * DEG;
+  const latR = lat * DEG;
+  const ra = Math.atan2(Math.sin(lonR) * Math.cos(obl) - Math.tan(latR) * Math.sin(obl), Math.cos(lonR));
+  const dec = Math.asin(Math.sin(latR) * Math.cos(obl) + Math.cos(latR) * Math.sin(obl) * Math.sin(lonR));
+  return { ra: ((ra * RAD) + 360) % 360, dec: dec * RAD, eclLon: lon };
+}
+
+function sunPosition(jd) {
+  const T = (jd - 2451545) / 36525;
+  const M = (357.5291 + 35999.0503 * T) * DEG;
+  const C = (1.9146 * Math.sin(M) + 0.02 * Math.sin(2 * M)) * DEG;
+  const lon = (280.4665 + 36000.7698 * T) * DEG + C;
+  const obl = (23.4393 - 0.013 * T) * DEG;
+  const ra = Math.atan2(Math.cos(obl) * Math.sin(lon), Math.cos(lon));
+  const dec = Math.asin(Math.sin(obl) * Math.sin(lon));
+  return { ra: ((ra * RAD) + 360) % 360, dec: dec * RAD, eclLon: (lon * RAD + 360) % 360 };
+}
+
+// ======= Planetary positions (simplified Keplerian elements) =======
+// Based on Meeus "Astronomical Algorithms" and JPL approximate elements
+// Accurate to ~1° for inner planets, ~2° for outer planets over 2000-2050
+
+const PLANET_ELEMENTS = {
+  // [a(AU), e, I(deg), L(deg), longPeri(deg), longNode(deg)]
+  // + rates per century [da, de, dI, dL, dPeri, dNode]
+  Mercury: {
+    a0: 0.38709927, da: 0.00000037,
+    e0: 0.20563593, de: 0.00001906,
+    I0: 7.00497902, dI: -0.00594749,
+    L0: 252.25032350, dL: 149472.67411175,
+    peri0: 77.45779628, dperi: 0.16047689,
+    node0: 48.33076593, dnode: -0.12534081,
+    color: [180, 180, 170], // pale gray
+  },
+  Venus: {
+    a0: 0.72333566, da: 0.00000390,
+    e0: 0.00677672, de: -0.00004107,
+    I0: 3.39467605, dI: -0.00078890,
+    L0: 181.97909950, dL: 58517.81538729,
+    peri0: 131.60246718, dperi: 0.00268329,
+    node0: 76.67984255, dnode: -0.27769418,
+    color: [255, 248, 220], // brilliant white-yellow
+  },
+  Mars: {
+    a0: 1.52371034, da: 0.00001847,
+    e0: 0.09339410, de: 0.00007882,
+    I0: 1.84969142, dI: -0.00813131,
+    L0: -4.55343205, dL: 19140.30268499,
+    peri0: -23.94362959, dperi: 0.44441088,
+    node0: 49.55953891, dnode: -0.29257343,
+    color: [255, 160, 100], // orange-red
+  },
+  Jupiter: {
+    a0: 5.20288700, da: -0.00011607,
+    e0: 0.04838624, de: -0.00013253,
+    I0: 1.30439695, dI: -0.00183714,
+    L0: 34.39644051, dL: 3034.74612775,
+    peri0: 14.72847983, dperi: 0.21252668,
+    node0: 100.47390909, dnode: 0.20469106,
+    color: [255, 220, 180], // warm yellow
+  },
+  Saturn: {
+    a0: 9.53667594, da: -0.00125060,
+    e0: 0.05386179, de: -0.00050991,
+    I0: 2.48599187, dI: 0.00193609,
+    L0: 49.95424423, dL: 1222.49362201,
+    peri0: 92.59887831, dperi: -0.41897216,
+    node0: 113.66242448, dnode: -0.28867794,
+    color: [240, 220, 160], // pale gold
+  },
+};
+
+function planetPositions(jd) {
+  const T = (jd - 2451545.0) / 36525.0; // centuries from J2000
+  const obl = (23.4393 - 0.013 * T) * DEG; // obliquity of ecliptic
+
+  // Get Earth's heliocentric position first
+  const earth = computeHelioEcl(T, {
+    a0: 1.00000261, da: 0.00000562,
+    e0: 0.01671123, de: -0.00004392,
+    I0: -0.00001531, dI: -0.01294668,
+    L0: 100.46457166, dL: 35999.37244981,
+    peri0: 102.93768193, dperi: 0.32327364,
+    node0: 0.0, dnode: 0.0,
+  });
+
+  const planets = [];
+
+  for (const [name, el] of Object.entries(PLANET_ELEMENTS)) {
+    const helio = computeHelioEcl(T, el);
+
+    // Convert heliocentric ecliptic to geocentric ecliptic
+    const geoX = helio.x - earth.x;
+    const geoY = helio.y - earth.y;
+    const geoZ = helio.z - earth.z;
+
+    // Distance from Earth
+    const dist = Math.sqrt(geoX * geoX + geoY * geoY + geoZ * geoZ);
+
+    // Ecliptic to equatorial (rotate by obliquity)
+    const eqX = geoX;
+    const eqY = geoY * Math.cos(obl) - geoZ * Math.sin(obl);
+    const eqZ = geoY * Math.sin(obl) + geoZ * Math.cos(obl);
+
+    // RA and Dec
+    const ra = ((Math.atan2(eqY, eqX) * RAD) + 360) % 360;
+    const dec = Math.asin(eqZ / dist) * RAD;
+
+    // Approximate visual magnitude
+    const mag = planetMagnitude(name, helio.r, dist, helio.lon, earth);
+
+    planets.push({
+      name,
+      ra,
+      dec,
+      mag,
+      dist,
+      color: el.color,
+    });
+  }
+  return planets;
+}
+
+function computeHelioEcl(T, el) {
+  // Compute heliocentric ecliptic cartesian coordinates
+  const a = el.a0 + el.da * T;
+  const e = el.e0 + el.de * T;
+  const I = (el.I0 + el.dI * T) * DEG;
+  const L = ((el.L0 + el.dL * T) % 360 + 360) % 360 * DEG;
+  const peri = ((el.peri0 + (el.dperi || 0) * T) % 360 + 360) % 360 * DEG;
+  const node = ((el.node0 + (el.dnode || 0) * T) % 360 + 360) % 360 * DEG;
+
+  const omega = peri - node; // argument of perihelion
+  const M = L - peri; // mean anomaly
+
+  // Solve Kepler's equation: E - e*sin(E) = M
+  let E = M;
+  for (let i = 0; i < 15; i++) {
+    const dE = (M - (E - e * Math.sin(E))) / (1 - e * Math.cos(E));
+    E += dE;
+    if (Math.abs(dE) < 1e-10) break;
+  }
+
+  // True anomaly
+  const xv = a * (Math.cos(E) - e);
+  const yv = a * Math.sqrt(1 - e * e) * Math.sin(E);
+  const v = Math.atan2(yv, xv);
+  const r = Math.sqrt(xv * xv + yv * yv);
+
+  // Heliocentric ecliptic coordinates
+  const cosO = Math.cos(node);
+  const sinO = Math.sin(node);
+  const cosI = Math.cos(I);
+  const sinI = Math.sin(I);
+  const cosW = Math.cos(v + omega);
+  const sinW = Math.sin(v + omega);
+
+  const x = r * (cosO * cosW - sinO * sinW * cosI);
+  const y = r * (sinO * cosW + cosO * sinW * cosI);
+  const z = r * (sinW * sinI);
+
+  const lon = Math.atan2(y, x);
+
+  return { x, y, z, r, lon };
+}
+
+function planetMagnitude(name, r, dist, helioLon, earth) {
+  // Approximate visual magnitudes using standard formulas
+  // r = distance from sun (AU), dist = distance from earth (AU)
+  const earthLon = Math.atan2(earth.y, earth.x);
+  // Phase angle (approximate)
+  const cosPhase = (r * r + dist * dist - earth.r * earth.r) / (2 * r * dist);
+  const phase = Math.acos(Math.max(-1, Math.min(1, cosPhase)));
+  const phaseDeg = phase * RAD;
+  const i = phaseDeg / 100; // normalized
+
+  switch (name) {
+    case 'Mercury':
+      return -0.36 + 5 * Math.log10(r * dist) + 3.8 * i - 2.73 * i * i + 2.0 * i * i * i;
+    case 'Venus':
+      return -4.34 + 5 * Math.log10(r * dist) + 0.013 * phaseDeg + 4.2e-7 * Math.pow(phaseDeg, 3);
+    case 'Mars':
+      return -1.51 + 5 * Math.log10(r * dist) + 0.016 * phaseDeg;
+    case 'Jupiter':
+      return -9.40 + 5 * Math.log10(r * dist) + 0.005 * phaseDeg;
+    case 'Saturn':
+      // Ring tilt affects magnitude, simplified here
+      return -8.88 + 5 * Math.log10(r * dist) + 0.044 * phaseDeg;
+    default:
+      return 0;
+  }
+}
+
+function moonPhaseInfo(jd) {
+  const moon = moonPosition(jd);
+  const sun = sunPosition(jd);
+  let elong = ((moon.eclLon - sun.eclLon) % 360 + 360) % 360;
+  const illum = (1 + Math.cos((180 - elong) * DEG)) / 2;
+  const names = ["New Moon","Waxing Crescent","First Quarter","Waxing Gibbous","Full Moon","Waning Gibbous","Last Quarter","Waning Crescent","New Moon"];
+  const thresholds = [22.5,67.5,112.5,157.5,202.5,247.5,292.5,337.5,361];
+  let idx = thresholds.findIndex(t => elong < t);
+  return { illumination: illum, phaseName: names[idx], elongation: elong, moonRA: moon.ra, moonDec: moon.dec };
+}
+
+const R_EQ2GAL = [
+  -0.0548755604, -0.8734370902, -0.4838350155,
+   0.4941094279, -0.4448296300,  0.7469822445,
+  -0.8676661490, -0.1980763734,  0.4559837762
+];
+
+function mat3Multiply(A, B) {
+  const r = new Float32Array(9);
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      r[i * 3 + j] = A[i * 3] * B[j] + A[i * 3 + 1] * B[3 + j] + A[i * 3 + 2] * B[6 + j];
+    }
+  }
+  return r;
+}
+
+function buildViewToGalMatrix(centerAlt, centerAz, latDeg, lonDeg, jd) {
+  const lst = (gmst(jd) + lonDeg + 360) % 360;
+  const lstR = lst * DEG;
+  const latR = latDeg * DEG;
+  const sinLst = Math.sin(lstR), cosLst = Math.cos(lstR);
+  const sinLat = Math.sin(latR), cosLat = Math.cos(latR);
+
+  const R_enu2eq = [
+    -sinLst, -sinLat * cosLst, cosLat * cosLst,
+     cosLst, -sinLat * sinLst, cosLat * sinLst,
+     0,       cosLat,          sinLat
+  ];
+
+  const a0 = centerAlt * DEG, az0 = centerAz * DEG;
+  const sinA = Math.sin(a0), cosA = Math.cos(a0);
+  const sinAz = Math.sin(az0), cosAz = Math.cos(az0);
+
+  const R_cam2enu = [
+    cosAz,  -sinA * sinAz,  cosA * sinAz,
+   -sinAz,  -sinA * cosAz,  cosA * cosAz,
+    0,       cosA,          sinA
+  ];
+
+  const R_enu2gal = mat3Multiply(R_EQ2GAL, R_enu2eq);
+  return mat3Multiply(R_enu2gal, R_cam2enu);
+}
+
+function buildCamToENUMatrix(centerAlt, centerAz) {
+  const a0 = centerAlt * DEG, az0 = centerAz * DEG;
+  const sinA = Math.sin(a0), cosA = Math.cos(a0);
+  const sinAz = Math.sin(az0), cosAz = Math.cos(az0);
+  return [
+    cosAz,  -sinA * sinAz,  cosA * sinAz,
+   -sinAz,  -sinA * cosAz,  cosA * cosAz,
+    0,       cosA,          sinA
+  ];
+}
+
+const glCanvas = document.getElementById('glCanvas');
+const gl = glCanvas.getContext('webgl', { antialias: true, alpha: false });
+
+function compileShader(src, type) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    console.error('Shader compile error:', gl.getShaderInfoLog(s));
+    return null;
+  }
+  return s;
+}
+
+const vs = compileShader(document.getElementById('vs').textContent, gl.VERTEX_SHADER);
+const fs = compileShader(document.getElementById('fs').textContent, gl.FRAGMENT_SHADER);
+const program = gl.createProgram();
+gl.attachShader(program, vs);
+gl.attachShader(program, fs);
+gl.linkProgram(program);
+if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+  console.error('Program link error:', gl.getProgramInfoLog(program));
+}
+gl.useProgram(program);
+
+const quad = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+const aPos = gl.getAttribLocation(program, 'aPos');
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+const uSkyTex = gl.getUniformLocation(program, 'uSkyTex');
+const uViewToGal = gl.getUniformLocation(program, 'uViewToGal');
+const uFovTan = gl.getUniformLocation(program, 'uFovTan');
+const uAspect = gl.getUniformLocation(program, 'uAspect');
+const uGamma = gl.getUniformLocation(program, 'uGamma');
+const uLightPollution = gl.getUniformLocation(program, 'uLightPollution');
+const uCamToENU = gl.getUniformLocation(program, 'uCamToENU');
+const uMoonENUDir = gl.getUniformLocation(program, 'uMoonENUDir');
+const uMoonIllumLoc = gl.getUniformLocation(program, 'uMoonIllum');
+const uTwilightBright = gl.getUniformLocation(program, 'uTwilightBright');
+const uSunENUDir = gl.getUniformLocation(program, 'uSunENUDir');
+const uHaze = gl.getUniformLocation(program, 'uHaze');
+
+const skyTexture = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, skyTexture);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0,0,0,255]));
+let textureLoaded = false;
+
+const skyImage = new Image();
+skyImage.onload = () => {
+  console.log('sky texture loaded OK');
+  gl.bindTexture(gl.TEXTURE_2D, skyTexture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, skyImage);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  textureLoaded = true;
+  document.getElementById('loadingMsg').style.display = 'none';
+  updateSky();
+};
+skyImage.onerror = (e) => {
+  console.error('IMAGE FAILED:', e, skyImage.src);
+  document.getElementById('loadingMsg').textContent = 'Could not load sky map texture.';
+};
+skyImage.src = './milkyway.jpg?v=' + Date.now();
+
+const overlay = document.getElementById('overlayCanvas');
+const ctx = overlay.getContext('2d');
+
+let computedStars = [];
+let computedMoon = null;
+let currentMoonPhase = null;
+let computedSun = null; // { alt, az, ra, dec }
+let computedPlanets = []; // { name, alt, az, mag, ra, dec, color }
+let currentJD = 0;
+let showTwinkle = true; // Track twinkle state for scintillation function
+
+const view = { centerAlt: 45, centerAz: 180, fov: 90, cx: 0, cy: 0, radius: 0 };
+
+function project(altDeg, azDeg) {
+  const a = altDeg * DEG, az = azDeg * DEG;
+  const ca0 = view.centerAlt * DEG, az0 = view.centerAz * DEG;
+  const cosA = Math.cos(a), sinA = Math.sin(a), cosAz = Math.cos(az), sinAz = Math.sin(az);
+  const cosC = Math.cos(ca0), sinC = Math.sin(ca0), cosAz0 = Math.cos(az0), sinAz0 = Math.sin(az0);
+
+  const x = cosA * sinAz, y = cosA * cosAz, z = sinA;
+  const cx0 = cosC * sinAz0, cy0 = cosC * cosAz0, cz0 = sinC;
+  const rx = cosAz0, ry = -sinAz0;
+  const ux = -sinC * sinAz0, uy = -sinC * cosAz0, uz = cosC;
+
+  const d = x * cx0 + y * cy0 + z * cz0;
+  if (d <= 0.01) return null;
+
+  const scale = view.radius / Math.tan(view.fov / 2 * DEG);
+  const px = (x * rx + y * ry) / d * scale;
+  const py = -(x * ux + y * uy + z * uz) / d * scale;
+  if (Math.abs(px) > view.radius * 1.15 || Math.abs(py) > view.radius * 1.15) return null;
+  return { x: view.cx + px, y: view.cy + py };
+}
+
+function computePositions() {
+  const lat = +document.getElementById('lat').value;
+  const lon = +document.getElementById('lon').value;
+  const dateStr = document.getElementById('dateInput').value;
+  const timeStr = document.getElementById('timeInput').value;
+  if (!dateStr || !timeStr) return;
+
+  const dt = new Date(dateStr + 'T' + timeStr);
+  const utH = dt.getUTCHours() + dt.getUTCMinutes() / 60 + dt.getUTCSeconds() / 3600;
+  currentJD = julianDate(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate(), utH);
+
+  computedStars = [];
+  for (const s of FULL_CATALOG) {
+    const p = raDecToAltAz(s[0], s[1], lat, lon, currentJD);
+    if (p.alt < -2) continue;
+    const am = atmosphericExtinction(p.alt, s[2]);
+    if (am > 7.5) continue;
+    computedStars.push({
+      alt: p.alt,
+      az: p.az,
+      mag: s[2],
+      appMag: am,
+      bv: s[3],
+      name: s[4],
+      ra: s[0],
+      dec: s[1],
+      twinklePhase: Math.random() * 6.2832
+    });
+  }
+
+  const sun = sunPosition(currentJD);
+  const sp = raDecToAltAz(sun.ra, sun.dec, lat, lon, currentJD);
+  computedSun = { ...sp, ...sun };
+
+  const moon = moonPosition(currentJD);
+  const mp = raDecToAltAz(moon.ra, moon.dec, lat, lon, currentJD);
+  computedMoon = { ...mp, ...moon };
+  currentMoonPhase = moonPhaseInfo(currentJD);
+
+  // Compute planet positions
+  const rawPlanets = planetPositions(currentJD);
+  computedPlanets = [];
+  for (const pl of rawPlanets) {
+    const pp = raDecToAltAz(pl.ra, pl.dec, lat, lon, currentJD);
+    if (pp.alt > -5) {
+      computedPlanets.push({
+        name: pl.name,
+        alt: pp.alt,
+        az: pp.az,
+        mag: pl.mag,
+        ra: pl.ra,
+        dec: pl.dec,
+        dist: pl.dist,
+        color: pl.color,
+      });
+    }
+  }
+
+  updateMoonPanel();
+  updatePlanetPanel();
+  updateTwilightPanel();
+}
+
+function updateMoonPanel() {
+  const el = document.getElementById('moonInfo');
+  if (!currentMoonPhase || !computedMoon) {
+    el.textContent = 'N/A';
+    return;
+  }
+  const icons = {
+    'New Moon':'🌑','Waxing Crescent':'🌒','First Quarter':'🌓','Waxing Gibbous':'🌔',
+    'Full Moon':'🌕','Waning Gibbous':'🌖','Last Quarter':'🌗','Waning Crescent':'🌘'
+  };
+  const ic = icons[currentMoonPhase.phaseName] || '';
+  const il = (currentMoonPhase.illumination * 100).toFixed(1);
+  const pos = computedMoon.alt > 0
+    ? `Alt ${computedMoon.alt.toFixed(1)}° Az ${computedMoon.az.toFixed(1)}°`
+    : 'Below horizon';
+  // Show moon's impact on limiting magnitude
+  let moonNote = '';
+  if (computedMoon.alt > 0 && currentMoonPhase.illumination > 0.02) {
+    const zenithLoss = moonWashout(currentMoonPhase.illumination, computedMoon.alt, 90);
+    moonNote = `<br><span style="color:#fa8">Mag loss: -${zenithLoss.toFixed(1)} at zenith</span>`;
+  }
+  el.innerHTML = `<span class="phase-icon">${ic}</span><b>${currentMoonPhase.phaseName}</b><br>Illumination: ${il}%<br>${pos}${moonNote}`;
+}
+
+function updatePlanetPanel() {
+  const el = document.getElementById('planetInfo');
+  if (!el) return;
+  if (!computedPlanets || computedPlanets.length === 0) {
+    el.innerHTML = '<span style="color:#556">No planets computed</span>';
+    return;
+  }
+  // Sort by magnitude (brightest first)
+  const sorted = [...computedPlanets].sort((a, b) => a.mag - b.mag);
+  let html = '';
+  for (const p of sorted) {
+    const above = p.alt > 0;
+    const altStr = above
+      ? `Alt ${p.alt.toFixed(1)}° Az ${p.az.toFixed(1)}°`
+      : `${p.alt.toFixed(1)}° (below horizon)`;
+    const magStr = p.mag.toFixed(1);
+    const rgb = p.color;
+    const dot = `<span style="color:rgb(${rgb[0]},${rgb[1]},${rgb[2]});font-size:1.2em;">&#9679;</span>`;
+    const dimStyle = above ? '' : 'opacity:0.4;';
+    html += `<div style="${dimStyle}margin-bottom:4px;">${dot} <b>${p.name}</b> mag ${magStr}<br><span style="color:#667;font-size:0.85em;margin-left:18px;">${altStr}</span></div>`;
+  }
+  el.innerHTML = html;
+}
+
+function updateTwilightPanel() {
+  const el = document.getElementById('twilightInfo');
+  if (!computedSun) { el.textContent = 'N/A'; return; }
+  const twi = twilightState(computedSun.alt);
+  const sunPos = computedSun.alt > 0
+    ? `Alt ${computedSun.alt.toFixed(1)}° Az ${computedSun.az.toFixed(1)}°`
+    : `${computedSun.alt.toFixed(1)}° below horizon`;
+
+  // Color-code the twilight label
+  const colors = {
+    'Daytime': '#ffe066',
+    'Sunrise/Sunset': '#ff9944',
+    'Civil twilight': '#cc7733',
+    'Nautical twilight': '#6688bb',
+    'Astronomical twilight': '#4466aa',
+    'Night': '#88aaff'
+  };
+  const col = colors[twi.label] || '#aaa';
+  let magNote = '';
+  if (twi.magPenalty > 0) {
+    const effectiveLim = limitingMagnitude(bortleToLP(getBortle())) - twi.magPenalty;
+    magNote = `<br>Effective limit: mag ${effectiveLim.toFixed(1)}`;
+  }
+  el.innerHTML = `<b style="color:${col}">${twi.label}</b><br>Sun: ${sunPos}${magNote}`;
+}
+
+function resizeCanvases() {
+  const wrap = document.getElementById('canvasWrap');
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  const dpr = window.devicePixelRatio || 1;
+  glCanvas.width = w * dpr;
+  glCanvas.height = h * dpr;
+  overlay.width = w * dpr;
+  overlay.height = h * dpr;
+  gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+  view.cx = w / 2;
+  view.cy = h / 2;
+  view.radius = Math.min(w, h) / 2 * 0.95;
+}
+
+function renderBackground() {
+  if (!textureLoaded) return;
+  const lat = +document.getElementById('lat').value;
+  const lon = +document.getElementById('lon').value;
+  const gamma = +document.getElementById('gammaSlider').value;
+  const lp = bortleToLP(getBortle());
+  const wrap = document.getElementById('canvasWrap');
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+
+  const M = buildViewToGalMatrix(view.centerAlt, view.centerAz, lat, lon, currentJD);
+
+  gl.useProgram(program);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, skyTexture);
+  gl.uniform1i(uSkyTex, 0);
+
+  gl.uniformMatrix3fv(uViewToGal, false, [
+    M[0], M[3], M[6],
+    M[1], M[4], M[7],
+    M[2], M[5], M[8]
+  ]);
+
+  gl.uniform1f(uFovTan, Math.tan(view.fov / 2 * DEG));
+  gl.uniform1f(uAspect, w / h);
+  gl.uniform1f(uGamma, gamma);
+  gl.uniform1f(uLightPollution, lp);
+
+  // Moon direction in ENU coordinates for shader glow
+  if (computedMoon && computedMoon.alt > -5 && currentMoonPhase) {
+    const mAltR = computedMoon.alt * DEG;
+    const mAzR = computedMoon.az * DEG;
+    // ENU: x=East, y=North, z=Up
+    const mx = Math.cos(mAltR) * Math.sin(mAzR);
+    const my = Math.cos(mAltR) * Math.cos(mAzR);
+    const mz = Math.sin(mAltR);
+    gl.uniform3f(uMoonENUDir, mx, my, mz);
+    gl.uniform1f(uMoonIllumLoc, currentMoonPhase.illumination);
+  } else {
+    gl.uniform3f(uMoonENUDir, 0, 0, -1);
+    gl.uniform1f(uMoonIllumLoc, 0);
+  }
+
+  // Twilight sky brightness
+  const twi = computedSun ? twilightState(computedSun.alt) : { magPenalty: 0, skyBright: 0, label: 'Night' };
+  gl.uniform1f(uTwilightBright, twi.skyBright);
+
+  // Atmospheric haze
+  const clarityIdx = getClarity();
+  gl.uniform1f(uHaze, CLARITY_INFO[clarityIdx].haze);
+
+  if (computedSun) {
+    const sAltR = computedSun.alt * DEG;
+    const sAzR = computedSun.az * DEG;
+    const sx = Math.cos(sAltR) * Math.sin(sAzR);
+    const sy = Math.cos(sAltR) * Math.cos(sAzR);
+    const sz = Math.sin(sAltR);
+    gl.uniform3f(uSunENUDir, sx, sy, sz);
+  } else {
+    gl.uniform3f(uSunENUDir, 0, 0, -1);
+  }
+
+  const C2E = buildCamToENUMatrix(view.centerAlt, view.centerAz);
+  gl.uniformMatrix3fv(uCamToENU, false, [
+    C2E[0], C2E[3], C2E[6],
+    C2E[1], C2E[4], C2E[7],
+    C2E[2], C2E[5], C2E[8]
+  ]);
+
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+function bvToRGB(bv) {
+  bv = Math.max(-0.4, Math.min(2.0, bv));
+  let r, g, b;
+  // More accurate temperature-based color
+  if (bv < 0) {
+    r = 0.62 + bv * 0.2;
+    g = 0.72 + bv * 0.15;
+    b = 1.0;
+  } else if (bv < 0.4) {
+    r = 0.62 + bv * 0.95;
+    g = 0.72 + bv * 0.7;
+    b = 1.0 - bv * 0.4;
+  } else if (bv < 0.8) {
+    r = 1.0;
+    g = 1.0 - (bv - 0.4) * 0.5;
+    b = 0.84 - (bv - 0.4) * 1.2;
+  } else if (bv < 1.2) {
+    r = 1.0;
+    g = 0.8 - (bv - 0.8) * 0.65;
+    b = 0.36 - (bv - 0.8) * 0.5;
+  } else {
+    r = 1.0 - (bv - 1.2) * 0.15;
+    g = 0.54 - (bv - 1.2) * 0.35;
+    b = Math.max(0.08, 0.16 - (bv - 1.2) * 0.12);
+  }
+  return [Math.max(0, Math.min(1, r)), Math.max(0, Math.min(1, g)), Math.max(0, Math.min(1, b))];
+}
+
+function renderOverlay() {
+  const wrap = document.getElementById('canvasWrap');
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  const dpr = window.devicePixelRatio || 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  const showConst = document.getElementById('showConst').checked;
+  const showLabels = document.getElementById('showLabels').checked;
+  const showGrid = document.getElementById('showGrid').checked;
+  const lp = bortleToLP(getBortle());
+  const baseMlim = limitingMagnitude(lp);
+
+  // Twilight reduces limiting magnitude
+  const twi = computedSun ? twilightState(computedSun.alt) : { magPenalty: 0, skyBright: 0, label: 'Night' };
+
+  // Haze reduces limiting magnitude even at zenith
+  // Poor atmosphere scatters more light, raising sky background
+  const hazeVal = CLARITY_INFO[getClarity()].haze;
+  const hazeMagLoss = hazeVal * 1.2; // up to ~1 mag loss in very hazy conditions
+
+  const mLim = baseMlim - twi.magPenalty - hazeMagLoss;
+
+  if (showGrid) {
+    ctx.strokeStyle = 'rgba(60,70,100,0.2)';
+    ctx.lineWidth = 0.5;
+    for (let alt = 0; alt <= 90; alt += 15) {
+      ctx.beginPath();
+      let first = true;
+      for (let az = 0; az <= 360; az += 2) {
+        const p = project(alt, az);
+        if (!p) { first = true; continue; }
+        if (first) { ctx.moveTo(p.x, p.y); first = false; }
+        else ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+    }
+    for (let az = 0; az < 360; az += 30) {
+      ctx.beginPath();
+      let first = true;
+      for (let alt = 0; alt <= 90; alt += 2) {
+        const p = project(alt, az);
+        if (!p) { first = true; continue; }
+        if (first) { ctx.moveTo(p.x, p.y); first = false; }
+        else ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+    }
+  }
+
+  if (showConst) {
+    ctx.strokeStyle = `rgba(80,120,180,${0.2 * (1.0 - lp * 1.2)})`;
+    ctx.lineWidth = 0.8;
+    ctx.setLineDash([4, 4]);
+    for (const [name, lines] of Object.entries(CONST_LINES)) {
+      let sx = 0, sy = 0, sc = 0;
+      for (const [n1, n2] of lines) {
+        const s1 = computedStars.find(s => s.name === n1);
+        const s2 = computedStars.find(s => s.name === n2);
+        if (!s1 || !s2 || s1.alt < 0 || s2.alt < 0) continue;
+        const p1 = project(s1.alt, s1.az);
+        const p2 = project(s2.alt, s2.az);
+        if (!p1 || !p2) continue;
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+        sx += p1.x + p2.x;
+        sy += p1.y + p2.y;
+        sc += 2;
+      }
+      if (showLabels && sc > 0) {
+        ctx.fillStyle = 'rgba(100,140,200,0.25)';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(name, sx / sc, sy / sc - 8);
+      }
+    }
+    ctx.setLineDash([]);
+  }
+
+  ctx.strokeStyle = 'rgba(60,80,50,0.35)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  let hf = true;
+  for (let az = 0; az <= 361; az++) {
+    const p = project(0, az % 360);
+    if (!p) { hf = true; continue; }
+    if (hf) { ctx.moveTo(p.x, p.y); hf = false; }
+    else ctx.lineTo(p.x, p.y);
+  }
+  ctx.stroke();
+
+  // Use 'lighter' blend mode for natural additive star glow
+  ctx.globalCompositeOperation = 'lighter';
+  const twinkleOn = document.getElementById('showTwinkle').checked;
+
+  // Moon washout: precompute moon state once per frame
+  const moonUp = computedMoon && computedMoon.alt > -5;
+  const moonIllum = currentMoonPhase ? currentMoonPhase.illumination : 0;
+  const moonAlt = computedMoon ? computedMoon.alt : -90;
+  const moonAz = computedMoon ? computedMoon.az : 0;
+
+  let visibleCount = 0;
+  for (const star of computedStars) {
+    if (star.alt < 0) continue;
+
+    // Effective magnitude = apparent mag + LP horizon penalty + moon washout
+    let effectiveMag = star.appMag + lpHorizonPenalty(star.alt, lp);
+    if (moonUp && moonIllum > 0.02) {
+      const angDist = angularDistance(star.alt, star.az, moonAlt, moonAz);
+      effectiveMag += moonWashout(moonIllum, moonAlt, angDist);
+    }
+    if (effectiveMag > mLim) continue;
+    visibleCount++;
+
+    const p = project(star.alt, star.az);
+    if (!p) continue;
+
+    const am = effectiveMag;
+    const isNamed = !!star.name;
+
+    const twinkle = twinkleOn ? scintillation(star, twinkleTime) : 1.0;
+
+    const baseBright = isNamed
+        ? Math.max(0.06, Math.min(1, Math.pow(10, -0.18 * (am + 0.2)) * (1.0 - lp * 0.40)))
+        : Math.max(0.03, Math.min(0.85, Math.pow(10, -0.20 * (am + 0.1)) * (1.0 - lp * 0.40)));
+    const bright = Math.max(0.02, Math.min(1.0, baseBright * twinkle));
+
+    const [cr, cg, cb] = bvToRGB(star.bv);
+
+    const whiteBlend = Math.min(1, bright * 1.2);
+    const cR = cr + (1 - cr) * whiteBlend * 0.7;
+    const cG = cg + (1 - cg) * whiteBlend * 0.7;
+    const cB = cb + (1 - cb) * whiteBlend * 0.7;
+
+    // Layer 1: Soft outer glow
+    if (am < 4.0 && lp < 0.7) {
+      const glowR = Math.max(2.5, bright * 18 + 2) * (0.85 + 0.15 * twinkle);
+      const glowAlpha = Math.min(0.12, bright * 0.15);
+      const grd = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowR);
+      grd.addColorStop(0, `rgba(${cr*255|0},${cg*255|0},${cb*255|0},${glowAlpha.toFixed(3)})`);
+      grd.addColorStop(0.4, `rgba(${cr*255|0},${cg*255|0},${cb*255|0},${(glowAlpha * 0.3).toFixed(3)})`);
+      grd.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grd;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, glowR, 0, TAU);
+      ctx.fill();
+    }
+
+    // Layer 2: Inner halo
+    const haloR = Math.max(0.8, 3.8 - am * 0.42 - lp * 0.5) * (0.9 + 0.1 * twinkle);
+    if (haloR > 0.6) {
+      const haloAlpha = Math.min(0.9, bright * 0.75);
+      const grd2 = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, haloR);
+      grd2.addColorStop(0, `rgba(${cR*255|0},${cG*255|0},${cB*255|0},${haloAlpha.toFixed(3)})`);
+      grd2.addColorStop(0.25, `rgba(${cr*255|0},${cg*255|0},${cb*255|0},${(haloAlpha * 0.45).toFixed(3)})`);
+      grd2.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grd2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, haloR, 0, TAU);
+      ctx.fill();
+    }
+
+    // Layer 3: Core dot
+    const coreSz = Math.max(0.3, 1.6 - am * 0.18 - lp * 0.15);
+    const coreAlpha = Math.min(1.0, bright * 1.5 + 0.1);
+    ctx.fillStyle = `rgba(${cR*255|0},${cG*255|0},${cB*255|0},${coreAlpha.toFixed(3)})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, coreSz, 0, TAU);
+    ctx.fill();
+
+    // Layer 4: Diffraction spikes (bright stars only)
+    if (star.appMag < 1.0 && bright > 0.3) {
+      const spikeLen = Math.max(4, bright * 25);
+      ctx.strokeStyle = `rgba(${cr*255|0},${cg*255|0},${cb*255|0},${Math.min(0.25, bright * 0.3).toFixed(3)})`;
+      ctx.lineWidth = 0.5;
+      for (let a = 0; a < 3; a++) {
+        const angle = a * Math.PI / 3 + 0.3; // slight rotation for natural look
+        ctx.beginPath();
+        ctx.moveTo(p.x - Math.cos(angle) * spikeLen, p.y - Math.sin(angle) * spikeLen);
+        ctx.lineTo(p.x + Math.cos(angle) * spikeLen, p.y + Math.sin(angle) * spikeLen);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Reset composite mode for labels, moon, etc.
+  ctx.globalCompositeOperation = 'source-over';
+
+  // Star count display
+  const countEl = document.getElementById('starCount');
+  if (countEl) countEl.textContent = '★ ' + visibleCount.toLocaleString() + ' stars visible';
+
+  // Star labels
+  if (showLabels && lp < 0.85) {
+    for (const star of computedStars) {
+      if (!star.name || star.alt < 0) continue;
+      let effectiveMag = star.appMag + lpHorizonPenalty(star.alt, lp);
+      if (moonUp && moonIllum > 0.02) {
+        const angDist = angularDistance(star.alt, star.az, moonAlt, moonAz);
+        effectiveMag += moonWashout(moonIllum, moonAlt, angDist);
+      }
+      if (effectiveMag > Math.min(mLim, 3.5)) continue;
+      const p = project(star.alt, star.az);
+      if (!p) continue;
+      const labelBright = Math.max(0.1, Math.min(0.7, Math.pow(10, -0.18 * (effectiveMag + 0.2)) * (1.0 - lp * 0.6)));
+      ctx.fillStyle = `rgba(190,210,240,${labelBright.toFixed(2)})`;
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'left';
+      const offset = Math.max(3, 4.5 - effectiveMag * 0.5);
+      ctx.fillText(star.name, p.x + offset, p.y + 3);
+    }
+  }
+
+  // --- Render planets ---
+  if (computedPlanets && computedPlanets.length > 0) {
+    for (const pl of computedPlanets) {
+      if (pl.alt < 0) continue;
+      // Check planet visibility against limiting magnitude
+      let plEffMag = pl.mag + lpHorizonPenalty(pl.alt, lp);
+      if (moonUp && moonIllum > 0.02) {
+        const angDist = angularDistance(pl.alt, pl.az, moonAlt, moonAz);
+        plEffMag += moonWashout(moonIllum, moonAlt, angDist);
+      }
+      // Planets are point-like but bright — always show if above effective magnitude limit
+      // (most planets are bright enough to be visible even in B9)
+      if (plEffMag > mLim + 2) continue; // generous cutoff for planets
+
+      const p = project(pl.alt, pl.az);
+      if (!p) continue;
+
+      const [cr, cg, cb] = pl.color;
+      const bright = Math.max(0.05, Math.min(1.5, Math.pow(10, -0.20 * (plEffMag + 0.5)) * (1.0 - lp * 0.40)));
+      const twinkle = scintillation({ ra: pl.ra, dec: pl.dec, appMag: pl.mag, twinklePhase: pl.ra }, twinkleTime);
+      const b = bright * twinkle;
+
+      // Outer glow (larger for bright planets like Venus/Jupiter)
+      const glowR = Math.max(6, b * 25 + 4);
+      const grd = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowR);
+      grd.addColorStop(0, `rgba(${cr},${cg},${cb},${Math.min(0.3, b * 0.25).toFixed(3)})`);
+      grd.addColorStop(0.4, `rgba(${cr},${cg},${cb},${Math.min(0.1, b * 0.08).toFixed(3)})`);
+      grd.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grd;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, glowR, 0, TAU);
+      ctx.fill();
+
+      // Inner bright core
+      const coreR = Math.max(1.2, b * 3 + 1);
+      const wr = Math.min(1, b * 1.5);
+      const ir = Math.round(cr * (1 - wr) + 255 * wr);
+      const ig = Math.round(cg * (1 - wr) + 255 * wr);
+      const ib = Math.round(cb * (1 - wr) + 255 * wr);
+      ctx.fillStyle = `rgba(${ir},${ig},${ib},${Math.min(1.0, b * 1.2).toFixed(2)})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, coreR, 0, TAU);
+      ctx.fill();
+
+      // Diffraction spikes for very bright planets (Venus, Jupiter)
+      if (pl.mag < 0 && b > 0.2) {
+        const spikeLen = Math.max(6, b * 30);
+        ctx.strokeStyle = `rgba(${cr},${cg},${cb},${Math.min(0.3, b * 0.25).toFixed(2)})`;
+        ctx.lineWidth = 0.5;
+        for (let a = 0; a < 3; a++) {
+          const angle = a * Math.PI / 3 + 0.3;
+          ctx.beginPath();
+          ctx.moveTo(p.x - Math.cos(angle) * spikeLen, p.y - Math.sin(angle) * spikeLen);
+          ctx.lineTo(p.x + Math.cos(angle) * spikeLen, p.y + Math.sin(angle) * spikeLen);
+          ctx.stroke();
+        }
+      }
+
+      // Planet label
+      if (showLabels) {
+        const labelAlpha = Math.max(0.3, Math.min(0.8, b * 0.8));
+        ctx.fillStyle = `rgba(${cr},${cg},${cb},${labelAlpha.toFixed(2)})`;
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(pl.name, p.x + coreR + 4, p.y + 4);
+      }
+    }
+  }
+
+  if (computedMoon && computedMoon.alt > -1 && currentMoonPhase) {
+    const p = project(computedMoon.alt, computedMoon.az);
+    if (p) {
+      const mr = Math.max(8, 16 - view.fov * 0.07);
+      const il = currentMoonPhase.illumination;
+      const el = currentMoonPhase.elongation;
+      const gr = mr * 4;
+      const grd = ctx.createRadialGradient(p.x, p.y, mr * 0.3, p.x, p.y, gr);
+      grd.addColorStop(0, `rgba(200,215,240,${il * 0.25})`);
+      grd.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grd;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, gr, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = '#1a1a28';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, mr, 0, TAU);
+      ctx.fill();
+      if (il > 0.01) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, mr, 0, TAU);
+        ctx.clip();
+        ctx.fillStyle = `rgb(${200 + il * 55 | 0}, ${210 + il * 45 | 0}, ${220 + il * 35 | 0})`;
+        const tX = mr * Math.cos(el * DEG);
+        ctx.beginPath();
+        if (el < 180) {
+          ctx.arc(p.x, p.y, mr, -PI / 2, PI / 2, false);
+          ctx.ellipse(p.x, p.y, Math.abs(tX), mr, 0, PI / 2, -PI / 2, tX > 0);
+        } else {
+          ctx.arc(p.x, p.y, mr, PI / 2, -PI / 2, false);
+          ctx.ellipse(p.x, p.y, Math.abs(tX), mr, 0, -PI / 2, PI / 2, tX > 0);
+        }
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.fillStyle = 'rgba(200,215,240,0.5)';
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Moon', p.x, p.y + mr + 14);
+    }
+  }
+
+  const dirs = [[0,'N'],[45,'NE'],[90,'E'],[135,'SE'],[180,'S'],[225,'SW'],[270,'W'],[315,'NW']];
+  for (const [az, label] of dirs) {
+    const p = project(0, az);
+    if (!p) continue;
+    const main = label.length === 1;
+    ctx.fillStyle = main ? 'rgba(200,180,100,0.65)' : 'rgba(150,140,80,0.35)';
+    ctx.font = main ? 'bold 13px sans-serif' : '10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, p.x, p.y + (main ? 20 : 16));
+  }
+
+  const dirN = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  const di = Math.round(view.centerAz / 22.5) % 16;
+  document.getElementById('viewInfo').innerHTML = `Looking: ${dirN[di]} (${view.centerAz.toFixed(0)}°)<br>Alt: ${view.centerAlt.toFixed(0)}° | FOV: ${view.fov.toFixed(0)}°`;
+}
+
+// --- Star scintillation (twinkling) ---
+let twinkleAnimId = null;
+let twinkleTime = 0;
+
+function scintillation(star, time) {
+  if (!showTwinkle) return 1.0;
+  const seed = star.ra * 1000 + star.dec * 500;
+  const freq1 = 2.0 + Math.sin(seed) * 1.5;
+  const freq2 = 5.0 + Math.cos(seed * 0.7) * 3.0;
+  const phase1 = seed * 0.1;
+  const phase2 = seed * 0.3;
+  const wave = Math.sin(time * freq1 + phase1) * 0.6 + Math.sin(time * freq2 + phase2) * 0.4;
+  // Fainter stars twinkle more, bright stars barely twinkle
+  const magFactor = Math.min(1, Math.max(0.1, (star.appMag - 0.5) / 5.0));
+  const amplitude = 0.12 * magFactor;
+  const lp = (+document.getElementById('lpSlider').value - 1) / 8;
+  const lpDamp = 1.0 - lp * 0.5;
+  const clarityBoost = 1.0 + (getClarity() - 1) * 0.15;
+  return 1.0 + wave * amplitude * lpDamp * clarityBoost;
+}
+
+let lastTwinkleFrame = 0;
+function twinkleLoop(timestamp) {
+  // Throttle to ~24fps
+  if (timestamp - lastTwinkleFrame < 42) {
+    twinkleAnimId = requestAnimationFrame(twinkleLoop);
+    return;
+  }
+  lastTwinkleFrame = timestamp;
+  twinkleTime = timestamp * 0.001;
+  renderOverlay();
+  twinkleAnimId = requestAnimationFrame(twinkleLoop);
+}
+
+function toggleTwinkle() {
+  const on = document.getElementById('showTwinkle').checked;
+  showTwinkle = on;
+  if (on && !twinkleAnimId) {
+    twinkleAnimId = requestAnimationFrame(twinkleLoop);
+  } else if (!on && twinkleAnimId) {
+    cancelAnimationFrame(twinkleAnimId);
+    twinkleAnimId = null;
+    renderOverlay(); // one final clean render without twinkle
+  }
+}
+
+function renderAll() {
+  renderBackground();
+  renderOverlay();
+}
+
+function updateSky() {
+  computePositions();
+  renderAll();
+}
+
+let dragging = false, dragSX, dragSY, dragAz0, dragAlt0;
+overlay.addEventListener('mousedown', e => {
+  dragging = true;
+  dragSX = e.clientX;
+  dragSY = e.clientY;
+  dragAz0 = view.centerAz;
+  dragAlt0 = view.centerAlt;
+  overlay.style.cursor = 'grabbing';
+});
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  const sens = view.fov / view.radius;
+  view.centerAz = ((dragAz0 - (e.clientX - dragSX) * sens) + 360) % 360;
+  view.centerAlt = Math.max(-5, Math.min(90, dragAlt0 + (e.clientY - dragSY) * sens));
+  renderAll();
+});
+window.addEventListener('mouseup', () => {
+  dragging = false;
+  overlay.style.cursor = 'grab';
+});
+overlay.addEventListener('wheel', e => {
+  e.preventDefault();
+  view.fov = Math.max(10, Math.min(150, view.fov + e.deltaY * 0.05));
+  renderAll();
+}, { passive: false });
+overlay.style.cursor = 'grab';
+
+// === Touch controls for mobile ===
+let touchStartX = 0, touchStartY = 0, touchAz0 = 0, touchAlt0 = 0;
+let pinchStartDist = 0, pinchFov0 = 0;
+let isTouchDragging = false, isPinching = false;
+
+function getTouchDist(t1, t2) {
+  return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+}
+
+overlay.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (e.touches.length === 2) {
+    // Pinch start
+    isPinching = true;
+    isTouchDragging = false;
+    pinchStartDist = getTouchDist(e.touches[0], e.touches[1]);
+    pinchFov0 = view.fov;
+  } else if (e.touches.length === 1) {
+    // Pan start
+    isTouchDragging = true;
+    isPinching = false;
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    touchAz0 = view.centerAz;
+    touchAlt0 = view.centerAlt;
+  }
+}, { passive: false });
+
+overlay.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (isPinching && e.touches.length === 2) {
+    const dist = getTouchDist(e.touches[0], e.touches[1]);
+    const scale = pinchStartDist / Math.max(1, dist);
+    view.fov = Math.max(10, Math.min(150, pinchFov0 * scale));
+    renderAll();
+  } else if (isTouchDragging && e.touches.length === 1) {
+    const sens = view.fov / view.radius;
+    const dx = e.touches[0].clientX - touchStartX;
+    const dy = e.touches[0].clientY - touchStartY;
+    view.centerAz = ((touchAz0 - dx * sens) + 360) % 360;
+    view.centerAlt = Math.max(-5, Math.min(90, touchAlt0 + dy * sens));
+    renderAll();
+  }
+}, { passive: false });
+
+overlay.addEventListener('touchend', e => {
+  if (e.touches.length < 2) isPinching = false;
+  if (e.touches.length === 0) isTouchDragging = false;
+});
+
+// Sidebar toggle for mobile
+function toggleSidebar() {
+  const sb = document.getElementById('sidebar');
+  const ov = document.getElementById('sidebarOverlay');
+  sb.classList.toggle('open');
+  ov.classList.toggle('show');
+}
+
+overlay.addEventListener('mousemove', e => {
+  if (dragging) return;
+  const rect = overlay.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const tt = document.getElementById('tooltip');
+  let best = null, bd = 15;
+  const lp = bortleToLP(getBortle());
+  for (const s of computedStars) {
+    if (!s.name || s.alt < 0) continue;
+    let eff = s.appMag + lpHorizonPenalty(s.alt, lp);
+    if (computedMoon && computedMoon.alt > -5 && currentMoonPhase && currentMoonPhase.illumination > 0.02) {
+      eff += moonWashout(currentMoonPhase.illumination, computedMoon.alt, angularDistance(s.alt, s.az, computedMoon.alt, computedMoon.az));
+    }
+    const p = project(s.alt, s.az);
+    if (!p) continue;
+    const d = Math.hypot(p.x - mx, p.y - my);
+    if (d < bd) { best = { ...s, effectiveMag: eff }; bd = d; }
+  }
+  if (best) {
+    tt.style.display = 'block';
+    tt.style.left = (mx + 15) + 'px';
+    tt.style.top = (my - 10) + 'px';
+    tt.innerHTML = `<b>${best.name}</b><br>Mag ${best.mag.toFixed(2)} | App ${best.effectiveMag.toFixed(2)}<br>Alt ${best.alt.toFixed(1)}° Az ${best.az.toFixed(1)}°`;
+  } else {
+    tt.style.display = 'none';
+  }
+});
+
+// === City autocomplete ===
+const cityInput = document.getElementById('cityInput');
+const sugBox = document.getElementById('citySuggestions');
+let sgIdx = -1;
+
+const MAJOR_CITIES = new Map([
+  ['tokyo|JP',15],['new york|US',15],['london|GB',15],['paris|FR',15],
+  ['beijing|CN',15],['shanghai|CN',15],['mumbai|IN',15],['delhi|IN',15],
+  ['seoul|KR',15],['mexico city|MX',15],['cairo|EG',15],['moscow|RU',15],
+  ['istanbul|TR',15],['buenos aires|AR',15],['lagos|NG',15],
+  ['los angeles|US',15],['chicago|US',15],['sydney|AU',15],['melbourne|AU',12],
+  ['toronto|CA',15],['berlin|DE',15],['madrid|ES',15],['rome|IT',15],
+  ['bangkok|TH',15],['jakarta|ID',15],['hong kong|HK',15],['singapore|SG',15],
+  ['dubai|AE',12],['washington|US',12],['san francisco|US',12],['boston|US',10],
+  ['seattle|US',10],['miami|US',10],['houston|US',10],['dallas|US',10],
+  ['atlanta|US',10],['denver|US',10],['phoenix|US',10],['detroit|US',10],
+  ['amsterdam|NL',12],['vienna|AT',12],['prague|CZ',12],['barcelona|ES',12],
+  ['lisbon|PT',12],['stockholm|SE',12],['copenhagen|DK',12],['dublin|IE',12],
+  ['zurich|CH',12],['brussels|BE',12],['montreal|CA',10],['vancouver|CA',10],
+  ['cape town|ZA',12],['auckland|NZ',12],['taipei|TW',12],['osaka|JP',10],
+  ['sao paulo|BR',15],['nairobi|KE',12],['johannesburg|ZA',12],
+  ['santiago|CL',12],['lima|PE',12],['bogota|CO',12],['havana|CU',12],
+]);
+
+function updateCoordDisplay() {
+  const lat = +document.getElementById('lat').value;
+  const lon = +document.getElementById('lon').value;
+  document.getElementById('coordDisplay').textContent =
+    `${Math.abs(lat).toFixed(2)}\u00b0${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(2)}\u00b0${lon >= 0 ? 'E' : 'W'}`;
+}
+updateCoordDisplay();
+
+function searchCities(query) {
+  if (!query || query.length < 2) return [];
+  const q = query.toLowerCase().trim();
+  const parts = q.split(/[,\s]+/).filter(Boolean);
+  const results = [];
+  for (const c of CITY_DB) {
+    const [city, region, country, lat, lon, tz, bortle] = c;
+    const cl = city.toLowerCase();
+    const rl = region.toLowerCase();
+    const cntl = country.toLowerCase();
+    let score = 0;
+    if (parts.length === 1) {
+      if (cl === q) score = 100;
+      else if (cl.startsWith(q)) score = 80;
+      else if (cl.includes(q)) score = 40;
+      else continue;
+    } else {
+      const lastPart = parts[parts.length - 1];
+      const joinedCity = parts.slice(0, -1).join(' ');
+      const regionMatch = rl.startsWith(lastPart) || cntl === lastPart;
+      const joinedMatch = cl.startsWith(joinedCity) || cl === joinedCity;
+      const fullMatch = cl.startsWith(q) || cl === q;
+      const cityMatch = cl.startsWith(parts[0]);
+      if (fullMatch) score = 90;
+      else if (joinedMatch && regionMatch) score = 85;
+      else if (cityMatch && regionMatch) score = 70;
+      else if (cityMatch) score = 30;
+      else continue;
+    }
+    const majorBonus = MAJOR_CITIES.get(cl + '|' + country);
+    if (majorBonus) score += majorBonus;
+    results.push({ city, region, country, lat, lon, tz, bortle: bortle || 6, score });
+    if (results.length > 50) break;
+  }
+  results.sort((a, b) => b.score - a.score);
+  return results.slice(0, 8);
+}
+
+function renderSuggestions(results) {
+  if (results.length === 0) { sugBox.style.display = 'none'; return; }
+  sgIdx = -1;
+  sugBox.innerHTML = results.map((r, i) =>
+    `<div class="sg-item" data-idx="${i}">${r.city} <span class="sg-region">${r.region ? r.region + ', ' : ''}${r.country}</span> <span style="color:#8af;font-size:0.8em;">B${r.bortle}</span></div>`
+  ).join('');
+  sugBox.style.display = 'block';
+  sugBox.querySelectorAll('.sg-item').forEach(el => {
+    el.addEventListener('mousedown', e => { e.preventDefault(); selectCity(results[+el.dataset.idx]); });
+  });
+}
+
+// Set the date/time inputs to the current time in a given IANA timezone
+function setLocalTime(tz) {
+  try {
+    const now = new Date();
+    // Use individual toLocaleString calls with explicit hourCycle for max browser compat
+    const y = now.toLocaleString('en-US', { timeZone: tz, year: 'numeric' });
+    const m = now.toLocaleString('en-US', { timeZone: tz, month: '2-digit' });
+    const d = now.toLocaleString('en-US', { timeZone: tz, day: '2-digit' });
+    const h = now.toLocaleString('en-GB', { timeZone: tz, hour: '2-digit', hourCycle: 'h23' });
+    const min = now.toLocaleString('en-US', { timeZone: tz, minute: '2-digit' });
+    const dateVal = y + '-' + m + '-' + d;
+    const timeVal = h.padStart(2, '0') + ':' + min.padStart(2, '0');
+    document.getElementById('dateInput').value = dateVal;
+    document.getElementById('timeInput').value = timeVal;
+    syncSliderFromTimeInput();
+  } catch (e) {
+    console.warn('setLocalTime failed for tz=' + tz, e);
+  }
+}
+
+function selectCity(r) {
+  document.getElementById('lat').value = r.lat;
+  document.getElementById('lon').value = r.lon;
+  cityInput.value = `${r.city}${r.region ? ', ' + r.region : ''}, ${r.country}`;
+  sugBox.style.display = 'none';
+  updateCoordDisplay();
+  currentTZ = r.tz || null;
+  if (currentTZ) setLocalTime(currentTZ);
+
+  // Auto-set Bortle light pollution based on city data
+  if (r.bortle) {
+    document.getElementById('lpSlider').value = r.bortle;
+    updateBortle();
+  }
+
+  updateSky();
+}
+
+cityInput.addEventListener('input', () => renderSuggestions(searchCities(cityInput.value)));
+cityInput.addEventListener('focus', () => { if (cityInput.value.length >= 2) renderSuggestions(searchCities(cityInput.value)); });
+cityInput.addEventListener('blur', () => { setTimeout(() => { sugBox.style.display = 'none'; }, 150); });
+cityInput.addEventListener('keydown', e => {
+  const items = sugBox.querySelectorAll('.sg-item');
+  if (!items.length) return;
+  if (e.key === 'ArrowDown') { e.preventDefault(); sgIdx = Math.min(sgIdx + 1, items.length - 1); items.forEach((el, i) => el.classList.toggle('active', i === sgIdx)); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); sgIdx = Math.max(sgIdx - 1, 0); items.forEach((el, i) => el.classList.toggle('active', i === sgIdx)); }
+  else if (e.key === 'Enter') { e.preventDefault(); const results = searchCities(cityInput.value); if (sgIdx >= 0 && results[sgIdx]) selectCity(results[sgIdx]); else if (results.length) selectCity(results[0]); }
+});
+
+function useMyLocation() {
+  if (!navigator.geolocation) {
+    alert('Geolocation not supported');
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(p => {
+    const lat = p.coords.latitude;
+    const lon = p.coords.longitude;
+    document.getElementById('lat').value = lat.toFixed(4);
+    document.getElementById('lon').value = lon.toFixed(4);
+    let best = null, bestDist = Infinity;
+    for (const c of CITY_DB) {
+      const d = Math.pow(c[3] - lat, 2) + Math.pow(c[4] - lon, 2);
+      if (d < bestDist) { bestDist = d; best = c; }
+    }
+    if (best && bestDist < 4) {
+      cityInput.value = `${best[0]}${best[1] ? ', ' + best[1] : ''}, ${best[2]}`;
+      currentTZ = best[5] || null;
+      if (currentTZ) setLocalTime(currentTZ);
+      // Auto-set Bortle from nearest city
+      if (best[6]) {
+        document.getElementById('lpSlider').value = best[6];
+        updateBortle();
+      }
+    } else {
+      cityInput.value = `${lat.toFixed(2)}\u00b0${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(2)}\u00b0${lon >= 0 ? 'E' : 'W'}`;
+      currentTZ = null;
+    }
+    updateCoordDisplay();
+    updateSky();
+  }, () => alert('Could not get location'));
+}
+
+let currentTZ = null; // IANA timezone of selected city (null = browser local)
+let liveInterval = null;
+let liveActive = false;
+
+function useNow() {
+  if (currentTZ) {
+    setLocalTime(currentTZ);
+  } else {
+    const n = new Date();
+    document.getElementById('dateInput').value = n.getFullYear() + '-' + String(n.getMonth() + 1).padStart(2, '0') + '-' + String(n.getDate()).padStart(2, '0');
+    document.getElementById('timeInput').value = String(n.getHours()).padStart(2, '0') + ':' + String(n.getMinutes()).padStart(2, '0');
+  }
+  syncSliderFromTimeInput();
+  updateSky();
+}
+
+// Time slider: 0-1439 minutes (00:00 to 23:59)
+function onTimeSlider() {
+  const mins = +document.getElementById('timeSlider').value;
+  const hh = String(Math.floor(mins / 60)).padStart(2, '0');
+  const mm = String(mins % 60).padStart(2, '0');
+  document.getElementById('timeInput').value = hh + ':' + mm;
+  document.getElementById('timeSliderLabel').textContent = hh + ':' + mm;
+
+  // Turn off live mode if active
+  if (liveActive) toggleLive();
+
+  updateSky();
+}
+
+// Sync slider position when time input changes from other sources
+function syncSliderFromTimeInput() {
+  const timeStr = document.getElementById('timeInput').value;
+  if (!timeStr) return;
+  const parts = timeStr.split(':');
+  const mins = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+  document.getElementById('timeSlider').value = mins;
+  const hh = String(Math.floor(mins / 60)).padStart(2, '0');
+  const mm = String(mins % 60).padStart(2, '0');
+  document.getElementById('timeSliderLabel').textContent = hh + ':' + mm;
+}
+
+function toggleLive() {
+  liveActive = !liveActive;
+  const btn = document.getElementById('liveBtn');
+  const dateEl = document.getElementById('dateInput');
+  const timeEl = document.getElementById('timeInput');
+  if (liveActive) {
+    btn.classList.add('btn-live-active');
+    btn.textContent = 'Live \u25CF';
+    dateEl.disabled = true;
+    timeEl.disabled = true;
+    useNow(); // sync immediately
+    liveInterval = setInterval(() => {
+      useNow();
+    }, 30000); // update every 30 seconds
+  } else {
+    btn.classList.remove('btn-live-active');
+    btn.textContent = 'Live';
+    dateEl.disabled = false;
+    timeEl.disabled = false;
+    if (liveInterval) { clearInterval(liveInterval); liveInterval = null; }
+  }
+}
+
+['dateInput','timeInput'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => {
+    // Manual time change disables Live mode
+    if (liveActive) toggleLive();
+    updateSky();
+  });
+});
+
+
+function init() {
+  useNow();
+  updateBortle();
+  updateClarity();
+  resizeCanvases();
+  window.addEventListener('resize', () => {
+    resizeCanvases();
+    renderAll();
+  });
+  // Orientation change handling for mobile
+  window.addEventListener('orientationchange', () => {
+    setTimeout(() => { resizeCanvases(); renderAll(); }, 200);
+  });
+  updateSky();
+  // Start twinkle animation if enabled
+  if (document.getElementById('showTwinkle').checked) {
+    twinkleAnimId = requestAnimationFrame(twinkleLoop);
+  }
+  // Fade out loading overlay
+  setTimeout(() => {
+    const lo = document.getElementById('loadingOverlay');
+    if (lo) {
+      lo.classList.add('fade-out');
+      setTimeout(() => lo.remove(), 800);
+    }
+  }, 500);
+  // Register service worker for PWA
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
+}
+
+init();
+</script>
+</body>
+</html>
